@@ -1,0 +1,78 @@
+version: "3.9"
+
+services:
+  # =====================================================
+  # Level 200: Core Components
+  # =====================================================
+  
+  # Vector Database Service (Chroma)
+  chroma:
+    image: chromadb/chroma:latest
+    container_name: ai_agent_chroma
+    ports:
+      - "8001:8000"
+    environment:
+      - CHROMA_DB_DIR=/data/chroma
+      - CHROMA_TELEMETRY_DISABLED=True
+    volumes:
+      - ./data/chroma_db:/data/chroma
+      - chroma_data:/chroma_data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - ai_network
+
+  # FastAPI Backend Service
+  api:
+    build: .
+    container_name: ai_agent_api
+    ports:
+      - "8000:8000"
+    depends_on:
+      chroma:
+        condition: service_healthy
+    environment:
+      # LLM Configuration
+      - LLM_PROVIDER=${LLM_PROVIDER}
+      - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+
+      
+      # Observability
+      - LOG_FILE=/app/logs/app.log
+      - LOG_LEVEL=INFO
+    volumes:
+      # Mount data directory for SQLite and Chroma persistence
+      - ./data:/app/data
+      - ./logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - ai_network
+
+  # =====================================================
+  # Level 300: Observability Stack (Optional)
+  # Note: Monitoring services removed as not integrated with code
+  # =====================================================
+
+# =====================================================
+# Volumes
+# =====================================================
+volumes:
+  chroma_data:
+    driver: local
+
+# =====================================================
+# Networks
+# =====================================================
+networks:
+  ai_network:
+    driver: bridge

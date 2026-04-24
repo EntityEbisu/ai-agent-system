@@ -1,0 +1,51 @@
+name: Minh Dev Config
+version: 1.0.0
+schema: v1
+
+models:
+  # 🔹 Primary coding model (best balance free)
+  - name: Nemotron Super (free)
+    provider: openai
+    model: nvidia/nemotron-3-super
+    apiBase: https://openrouter.ai/api/v1
+    apiKey: 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
+    roles:
+      - chat
+      - edit
+      - apply
+
+  # 🔹 Strong backup (very large, but slower)
+  - name: GPT-OSS 120B (free)
+    provider: openai
+    model: openai/gpt-oss-120b
+    apiBase: https://openrouter.ai/api/v1
+    apiKey: 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
+    roles:
+      - chat
+      - edit
+
+  # 🔹 Experimental large model (optional)
+  - name: Minimax M2.5 (free)
+    provider: openai
+    model: minimax/minimax-m2.5
+    apiBase: https://openrouter.ai/api/v1
+    apiKey: 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
+
+  # 🔹 Local fallback (fast + private)
+  - uses: ollama/qwen2.5-coder:3b
+    with:
+      apiBase: http://localhost:11434
+
+embeddings:
+  # ⚠️ WARNING: logs data (as you mentioned)
+  - name: NVIDIA Embed (free)
+    provider: openai
+    model: nvidia/llama-nemotron-embed-v1
+    apiBase: https://openrouter.ai/api/v1
+    apiKey: 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
+
+  # 🔹 Safe local fallback
+  - uses: ollama/mxbai-embed-large:latest
+
+mcpServers:
+  - uses: anthropic/memory-mcp
