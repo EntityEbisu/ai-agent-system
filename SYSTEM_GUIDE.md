@@ -1,8 +1,5 @@
 # 🚀 System Guide: Runtime Execution & Observability
 
-**Last Updated**: April 23, 2026  
-**System Status**: 🟢 PRODUCTION-READY
-
 ---
 
 ## 📋 Table of Contents
@@ -34,7 +31,6 @@ python tests/run_all_tests.py
 **Expected Result**:
 - API: http://localhost:8000 (FastAPI docs at /docs)
 - UI: http://localhost:8501 (Streamlit chat interface)
-- Tests: 15/15 passing
 
 ---
 
@@ -91,20 +87,6 @@ LOG_LEVEL=INFO
 LOG_FILE=logs/app.log
 DATABASE_URL=sqlite:///data/sqlite/conversations.db
 ```
-
-### 📊 System Resources
-
-**Minimum Requirements**:
-- Python 3.9+
-- 4GB RAM
-- 2GB Disk space
-- Internet connection (for LLM API calls)
-
-**Recommended**:
-- Python 3.11+
-- 8GB RAM
-- 10GB Disk space
-- Stable internet connection
 
 ---
 
@@ -217,11 +199,6 @@ print(f"Retrieved {len(docs)} documents")
 - Session queries: <100ms
 
 ### 📈 Scaling Considerations
-
-#### Vertical Scaling (Single Instance)
-- **CPU**: More cores help with concurrent requests
-- **RAM**: 8GB+ recommended for multiple users
-- **Disk**: SSD recommended for vector store I/O
 
 #### Horizontal Scaling (Multiple Instances)
 - **Session Affinity**: Required for conversation memory
