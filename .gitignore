@@ -44,3 +44,9 @@ Thumbs.db
 
 # Tests
 __pycache__/
+
+# Exclude additional documentation and guide files from remote repository
+CONTRIBUTING.md
+IaC_DOCUMENTATION.md
+LEVEL_200_300_IMPLEMENTATION.md
+TESTING_GUIDE.md
