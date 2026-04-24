@@ -20,7 +20,7 @@
 ## Scene 4: Observability & Data Explorer (3:00 - 4:00)
 * **Visual**: Streamlit "Data Explorer" tabs.
 * **Action**: Click through "Logs", "Sessions", and "Metrics" tabs.
-* **Narration**: "Under the hood, we track everything. Here in the Data Explorer, we can see structured JSON logs, session histories, and performance metrics like latency and token usage. This level of observability is crucial for production systems."
+* **Narration**: "The system records structured JSON logs, session histories, and basic performance metrics (latency, token usage). Full Prometheus/Grafana/Loki monitoring is planned for future releases but not currently deployed."
 
 ## Scene 5: Conclusion (4:00 - 4:30)
 * **Visual**: GitHub Repository or Architecture Diagram.

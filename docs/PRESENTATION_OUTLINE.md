@@ -29,11 +29,12 @@
 * **Validation**: Built-in validation for sensitive formats (SSN, Date).
 * **Reliability**: Zero hallucination risk for critical business logic.
 
-## Slide 6: Observability & Data Strategy
-* **Structured Logging**: JSON logs for automated analysis.
-* **Persistence**: SQLite database for session history and telemetry.
-* **Metrics**: Tracking latency, token usage, and tool success rates.
-* **Data Explorer**: Streamlit-based dashboard for system introspection.
+## Slide 6: Observability & Data Strategy (Planned)
+* **Structured Logging**: JSON logs are implemented and ready for analysis.
+* **Persistence**: SQLite database stores session history and telemetry.
+* **Metrics**: Currently tracking latency, token usage, and tool success rates.
+* **Data Explorer**: Streamlit dashboard provides basic introspection.
+* **Full Monitoring Stack**: Prometheus, Grafana, and Loki are planned future enhancements (not yet deployed).
 
 ## Slide 7: Engineering Best Practices
 * **Dockerized**: Simplified deployment and environment parity.

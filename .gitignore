@@ -28,6 +28,9 @@ venv/
 *.swp
 *.swo
 
+# Miscellaneous
+.continue/
+
 # OS
 .DS_Store
 Thumbs.db
