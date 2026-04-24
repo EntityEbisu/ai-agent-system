@@ -37,21 +37,7 @@ This project is structured to demonstrate capability across three dimensions:
 
 ## 🧱 System Architecture
 
-```mermaid
-graph LR
-    User[User / Frontend] -->|HTTP /chat| API[FastAPI Backend]
-    API -->|State & routing| Router[app.agent.router]
-    Router -->|Order intent| Workflow[app.agent.workflow]
-    Router -->|RAG intent| RAG[app.rag.pipeline]
-    Workflow -->|Mock tool| OrderTool[app.tools.order_status]
-    RAG -->|Retriever| Retriever[app.rag.retriever]
-    Retriever -->|Chroma read| Chroma[Chroma Vector Store]
-    RAG -->|LLM| LLM[OpenRouter / ChatOpenAI]
-    API -->|Persist| SQLite[data/sqlite/conversations.db]
-    API -->|Log/metrics| Observability[app.services.observability]
-    Observability -->|Structured Logs| Logs[logs/app.log]
-    Observability -->|In-memory Metrics| Metrics[/metrics endpoint]
-```
+*See [PROJECT_FLOW.md](PROJECT_FLOW.md) for detailed system architecture diagrams and data flow visualization.*
 
 ---
 
@@ -170,33 +156,7 @@ graph TD
 
 ## 🎨 System Interaction Flow
 
-```mermaid
-sequenceDiagram
-    User->>FastAPI: POST /chat {message, session_id}
-    FastAPI->>Router: classify(intent)
-    alt Order Status
-        Router->>Workflow: start_tool_flow()
-        Workflow->>User: "What\'s your name?"
-        User->>Workflow: "John Doe"
-        Workflow->>User: "Last 4 SSN digits?"
-        User->>Workflow: "1234"
-        Workflow->>User: "Date of birth?"
-        User->>Workflow: "2000-01-01"
-        Workflow->>Tool: execute_order_status()
-        Tool->>Workflow: "Shipped, arrives in 2 days"
-        Workflow->>User: Response
-    else RAG Query
-        Router->>RAG: handle_rag_stream()
-        RAG->>Retriever: get_relevant_docs()
-        Retriever->>Chroma: similarity_search()
-        Chroma->>Retriever: Document chunks
-        RAG->>LLM: generate_response()
-        LLM->>RAG: Streaming tokens
-        RAG->>User: Streaming response
-    end
-    FastAPI->>SQLite: persist_message()
-    FastAPI->>Logger: log_request()
-```
+*See [PROJECT_FLOW.md](PROJECT_FLOW.md) for detailed system interaction flow diagrams and sequence diagrams.*
 
 ## 📂 File Map & Purpose
 
