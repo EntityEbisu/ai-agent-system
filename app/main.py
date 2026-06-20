@@ -7,7 +7,8 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
-from app.agent.memory import get_session
+from app.agent.memory import configure as configure_session_store
+from app.agent.memory import get_session, save_session
 from app.agent.router import handle_message_stream
 from app.data.models import ConversationSession, Message, init_db
 from app.services.observability import Timer, init_logging
@@ -22,8 +23,9 @@ DATABASE_URL = f"sqlite:///{DATABASE_PATH}"
 
 
 def startup_event():
-    """Initialize logging and database on startup."""
+    """Initialize logging, DB, and session store on startup."""
     DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    configure_session_store(DATABASE_PATH)
     log_file = os.getenv("LOG_FILE", "logs/app.log")
     log_level = os.getenv("LOG_LEVEL", "INFO")
     init_logging(log_file=log_file, log_level=log_level)
@@ -136,7 +138,7 @@ async def get_metrics():
 @app.post("/chat")
 async def chat(req: ChatRequest):
     """Chat endpoint with streaming responses and observability."""
-    state = get_session(req.session_id)
+    state = await get_session(req.session_id)
     logger = get_logger_instance()
 
     async def event_generator():
@@ -194,13 +196,20 @@ async def chat(req: ChatRequest):
                 tokens_used=total_tokens
             )
 
-            state["history"].append({
+            state.get("history").append({
                 "user": req.message,
                 "assistant": full_response,
                 "tokens": total_tokens
             })
+
+            # Persist session state back to SQLite
+            await save_session(req.session_id, state)
         except Exception as e:
             logger.log_error("chat_error", str(e))
+            # Persist state even on error so progress isn't lost
+            from contextlib import suppress
+            with suppress(Exception):
+                await save_session(req.session_id, state)
             yield json.dumps({"error": str(e)}) + "\n"
 
     return StreamingResponse(event_generator(), media_type="application/x-ndjson")

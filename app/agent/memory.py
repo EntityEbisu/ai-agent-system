@@ -1,13 +1,114 @@
+"""Persistent session state — backed by SQLite with per-key locking.
+
+Replaces the in-memory ``dict`` store with a persistent SQLite backend
+that survives process restarts.
+
+Uses per-session ``asyncio.Lock`` held in a module-level ``dict`` to prevent
+concurrent mutations of the same session state.
+"""
+
+import asyncio
+import json
+import sqlite3
+from datetime import datetime
+from pathlib import Path
+from typing import Any
 
 from .state import init_state
 
-# In-memory store
-sessions: dict[str, dict] = {}
+_db_path: Path | None = None
+_locks: dict[str, asyncio.Lock] = {}
+_locks_lock = asyncio.Lock()
 
-def get_session(session_id: str):
-    if session_id not in sessions:
-        sessions[session_id] = init_state()
-    return sessions[session_id]
 
-def update_session(session_id: str, state: dict):
-    sessions[session_id] = state
+def configure(db_path: str | Path) -> None:
+    """Set the database path (called once at startup before any get_session call).
+
+    Args:
+        db_path: Path to the SQLite database file.
+    """
+    global _db_path
+    _db_path = Path(db_path)
+
+
+def _get_connection() -> sqlite3.Connection:
+    """Open a connection to the session database, ensuring tables exist.
+
+    Returns:
+        SQLite connection (caller should commit before discarding).
+    """
+    if _db_path is None:
+        raise RuntimeError("Session store not configured — call configure() first")
+    _db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(_db_path))
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS session_state (
+            session_id TEXT PRIMARY KEY,
+            state_json TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+    """)
+    conn.commit()
+    return conn
+
+
+def _get_lock(session_id: str) -> asyncio.Lock:
+    """Get or create a per-session asyncio.Lock.
+
+    The locks dict is protected by its own lock to avoid races on first access.
+
+    Args:
+        session_id: Session identifier.
+
+    Returns:
+        asyncio.Lock specific to this session.
+    """
+    if session_id not in _locks:
+        _locks[session_id] = asyncio.Lock()
+    return _locks[session_id]
+
+
+async def get_session(session_id: str) -> dict[str, Any]:
+    """Load session state from SQLite, creating a new one if it doesn't exist.
+
+    Args:
+        session_id: Session identifier.
+
+    Returns:
+        Mutable session state dictionary.
+    """
+    conn = _get_connection()
+    cursor = conn.execute(
+        "SELECT state_json FROM session_state WHERE session_id = ?",
+        (session_id,),
+    )
+    row = cursor.fetchone()
+    if row:
+        return dict(json.loads(row[0]))
+
+    state = init_state()
+    conn.execute(
+        "INSERT INTO session_state (session_id, state_json, updated_at) "
+        "VALUES (?, ?, ?)",
+        (session_id, json.dumps(state), datetime.utcnow().isoformat()),
+    )
+    conn.commit()
+    return state
+
+
+async def save_session(session_id: str, state: dict[str, Any]) -> None:
+    """Save session state to SQLite under the per-session lock.
+
+    Args:
+        session_id: Session identifier.
+        state: Session state dictionary to persist.
+    """
+    lock = _get_lock(session_id)
+    async with lock:
+        conn = _get_connection()
+        conn.execute(
+            "UPDATE session_state SET state_json = ?, updated_at = ? "
+            "WHERE session_id = ?",
+            (json.dumps(state), datetime.utcnow().isoformat(), session_id),
+        )
+        conn.commit()

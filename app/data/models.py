@@ -86,6 +86,20 @@ class Message(Base):
     )
 
 
+class SessionState(Base):
+    """Persistent session state store backed by SQLite.
+
+    Stores serialized JSON state for each active conversation session.
+    Managed by ``app.agent.memory`` via raw SQL for simplicity.
+    """
+
+    __tablename__ = "session_state"
+
+    session_id = Column(String, primary_key=True)
+    state_json = Column(Text, nullable=False)
+    updated_at = Column(String, nullable=False)
+
+
 # Database initialization helper
 def init_db(database_url: str) -> sessionmaker:
     """
