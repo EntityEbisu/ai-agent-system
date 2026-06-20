@@ -1,5 +1,9 @@
 # Phase A — Correctness + Security
 
+**Instructions for you (the human):** Open a **fresh Hermes chat** and paste this entire file as the first message. Do not carry over context from previous sessions.
+
+**Session instructions for the agent:**
+
 **Branch:** `phase-a/` (create from `main`)
 **Mode:** AUTONOMOUS — proceed through all steps without asking for approval.
 **Phase plan:** `audit-reports/audit-phase-A.md`
