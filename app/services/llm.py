@@ -3,8 +3,9 @@ LLM and Embedding Service Factory
 Centralizes model initialization for OpenRouter LLM and HuggingFace embeddings
 """
 
-from langchain_openai import ChatOpenAI
 from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_openai import ChatOpenAI
+
 from config import APIConfig
 
 
@@ -24,7 +25,7 @@ def get_llm(streaming: bool = False):
         temperature=llm_config["temperature"],
         streaming=streaming,
         openai_api_base=llm_config["api_base"],
-        openai_api_key=llm_config["api_key"]
+        openai_api_key=llm_config["api_key"]  # type: ignore[call-arg]
     )
 
 

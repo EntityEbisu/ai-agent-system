@@ -4,10 +4,12 @@ Loads PDF documents, chunks them, creates embeddings, and stores in ChromaDB
 """
 
 import os
+
 from dotenv import load_dotenv
 from langchain_community.document_loaders import PyPDFLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+
 from app.services.llm import get_embeddings
 from config import APIConfig
 
@@ -44,7 +46,7 @@ def ingest_documents():
 
     # Create Chroma vector store
     # This will create a new ChromaDB or load from existing if it finds one
-    db = Chroma.from_documents(
+    Chroma.from_documents(
         documents=chunks,
         embedding=embeddings,
         persist_directory=CHROMA_PERSIST_DIR

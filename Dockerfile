@@ -1,14 +1,14 @@
 # Dockerfile (root)
 
 # ---- Base image -----------------------------------------------------------
-# Use the official lightweight Python image that matches the project’s
-# requirement (Python 3.13+).  The tag “slim‑bookworm” is small and includes
-# the OS libraries needed for the HuggingFace embedding model.
-FROM python:3.13-slim-bookworm AS base
+# Use the official lightweight Python 3.11 image.
+# Python 3.11 is pinned for compatibility with sentence-transformers
+# and to avoid GPU-package overhead on CPU-only deployments.
+FROM python:3.11-slim-bookworm AS base
 
 # ---- Build stage -----------------------------------------------------------
-# Install system‑level dependencies required by sentence‑transformers
-# (the HuggingFace embedding model).  Keep the layer count low for fast builds.
+# Install system‑level dependencies required by sentence-transformers
+# (the HuggingFace embedding model) and PyTorch CPU build.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         build-essential \
@@ -27,7 +27,9 @@ WORKDIR /app
 
 # ---- Install Python dependencies -------------------------------------------
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Install CPU-only PyTorch first to avoid pulling GPU packages
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu && \
+    pip install --no-cache-dir -r requirements.txt
 
 # ---- Copy application code -------------------------------------------------
 COPY . .

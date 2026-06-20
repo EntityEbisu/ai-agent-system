@@ -15,14 +15,12 @@ Features:
 
 import json
 import sqlite3
-import sys
 import time
-from pathlib import Path
 from datetime import datetime
-from typing import Optional
+from pathlib import Path
 
-import streamlit as st
 import requests
+import streamlit as st
 from requests.exceptions import ConnectionError
 
 # Configure Streamlit
@@ -40,7 +38,7 @@ HEALTH_CHECK_INTERVAL = 30  # seconds
 # Custom CSS
 st.markdown("""
 <style>
-    .stChat { 
+    .stChat {
         background-color: #f8f9fa;
     }
     .metric-card {
@@ -94,7 +92,7 @@ def check_api_health() -> bool:
         return False
 
 
-def get_system_metrics() -> Optional[dict]:
+def get_system_metrics() -> dict | None:
     """Get system metrics from API."""
     try:
         response = requests.get(f"{API_BASE_URL}/metrics", timeout=2)
@@ -108,7 +106,7 @@ def get_system_metrics() -> Optional[dict]:
 def send_chat_message(message: str) -> str:
     """Send message to API and get response."""
     state = get_session_state()
-    
+
     try:
         response = requests.post(
             f"{API_BASE_URL}/chat",
@@ -116,7 +114,7 @@ def send_chat_message(message: str) -> str:
             timeout=30,
             stream=True
         )
-        
+
         if response.status_code == 200:
             # Handle streaming response
             full_response = ""
@@ -156,10 +154,14 @@ def get_db_explorer_data():
     cursor = connection.cursor()
 
     sessions = cursor.execute(
-        "SELECT id, user_id, created_at, updated_at, context_type, messages_count FROM conversation_sessions ORDER BY created_at DESC LIMIT 20"
+        "SELECT id, user_id, created_at, updated_at, "
+        "context_type, messages_count FROM conversation_sessions "
+        "ORDER BY created_at DESC LIMIT 20"
     ).fetchall()
     messages = cursor.execute(
-        "SELECT id, session_id, role, substr(content, 1, 140) AS preview, created_at, intent, rag_query FROM messages ORDER BY created_at DESC LIMIT 50"
+        "SELECT id, session_id, role, substr(content, 1, 140) "
+        "AS preview, created_at, intent, rag_query FROM messages "
+        "ORDER BY created_at DESC LIMIT 50"
     ).fetchall()
 
     docs = []
@@ -196,7 +198,7 @@ def get_db_explorer_data():
 def main():
     """Main Streamlit app."""
     state = get_session_state()
-    
+
     # Header
     col1, col2, col3 = st.columns([1, 2, 1])
     with col1:
@@ -210,22 +212,22 @@ def main():
         if current_time - state.last_health_check > HEALTH_CHECK_INTERVAL:
             state.api_available = check_api_health()
             state.last_health_check = current_time
-        
+
         if state.api_available:
             st.markdown("### 🟢 API Online")
         else:
             st.markdown("### 🔴 API Offline")
-    
+
     # Sidebar
     with st.sidebar:
         st.header("Configuration")
-        
+
         st.write(f"**Session ID**: `{state.session_id}`")
-        
+
         st.divider()
-        
+
         st.subheader("📊 System Status")
-        
+
         if state.api_available:
             metrics = get_system_metrics()
             if metrics:
@@ -239,40 +241,40 @@ def main():
                 st.info("No metrics available")
         else:
             st.error("Start the API server: `uvicorn app.main:app --reload`")
-        
+
         st.divider()
-        
+
         st.subheader("ℹ️ Help")
-        
+
         with st.expander("**Order Status Workflow**"):
             st.write("""
             To check your order status, simply say:
             - "Where is my order?"
             - "Check my order status"
             - "I want to verify my order"
-            
+
             The system will then ask for:
             1. Your full name
             2. Last 4 digits of SSN
             3. Your date of birth (YYYY-MM-DD)
             """)
-        
+
         with st.expander("**Ask about Documents**"):
             st.write("""
             Ask questions about the company's 10-K filing:
             - "What are the business risks?"
             - "Tell me about seasonality"
             - "What's the revenue breakdown?"
-            
+
             The system will retrieve relevant documents and answer your questions.
             """)
-        
+
         with st.divider():
-        
+
             if st.button("🔄 Clear Conversation", use_container_width=True):
                 st.session_state.messages = []
                 st.rerun()
-    
+
     # Main content
     if not state.api_available:
         st.error(
@@ -283,10 +285,10 @@ def main():
             "```"
         )
         return
-    
+
     # Chat interface
     st.subheader("💬 Conversation")
-    
+
     # Display chat history
     for msg in state.messages:
         if msg["role"] == "user":
@@ -295,22 +297,22 @@ def main():
         else:
             with st.chat_message("assistant", avatar="🧠"):
                 st.markdown(msg["content"])
-    
+
     # Input field
     if prompt := st.chat_input("Type your message here..."):
         # Add user message to history
         state.messages.append({"role": "user", "content": prompt})
-        
+
         with st.chat_message("user", avatar="👤"):
             st.markdown(prompt)
-        
+
         # Get response from API
         with st.chat_message("assistant", avatar="🧠"):
             with st.spinner("Thinking..."):
                 response = send_chat_message(prompt)
-            
+
             st.markdown(response)
-            
+
             # Add to history
             state.messages.append({"role": "assistant", "content": response})
 
@@ -323,7 +325,12 @@ def main():
         if explorer_data["sessions"]:
             for session in explorer_data["sessions"]:
                 st.write(f"**Session:** {session['id']}")
-                st.write(f"- user_id: {session['user_id']} | context_type: {session['context_type']} | messages: {session['messages_count']} | created_at: {session['created_at']}")
+                st.write(
+                    f"- user_id: {session['user_id']} | "
+                    f"context_type: {session['context_type']} | "
+                    f"messages: {session['messages_count']} | "
+                    f"created_at: {session['created_at']}"
+                )
                 st.divider()
         else:
             st.info("No session records available yet.")
@@ -332,7 +339,11 @@ def main():
         if explorer_data["messages"]:
             for message in explorer_data["messages"]:
                 st.write(f"**{message['role'].title()}** ({message['created_at']})")
-                st.write(f"- session: {message['session_id']} | intent: {message['intent']} | rag_query: {message['rag_query']}")
+                st.write(
+                    f"- session: {message['session_id']} | "
+                    f"intent: {message['intent']} | "
+                    f"rag_query: {message['rag_query']}"
+                )
                 st.write(message['preview'])
                 st.divider()
         else:
@@ -354,7 +365,7 @@ def main():
 
     # Footer
     st.divider()
-    
+
     col1, col2, col3 = st.columns(3)
     with col1:
         st.caption("📊 **Endpoints**: /chat, /health, /metrics")

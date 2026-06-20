@@ -31,8 +31,7 @@ venv/
 # Miscellaneous
 .continue/
 
-# Exclude documentation and test directories from remote repository
-tests/
+# Exclude documentation directories from remote repository
 docs/
 
 # OS

@@ -1,8 +1,8 @@
-from typing import Dict
+
 from .state import init_state
 
 # In-memory store
-sessions: Dict[str, dict] = {}
+sessions: dict[str, dict] = {}
 
 def get_session(session_id: str):
     if session_id not in sessions:

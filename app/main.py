@@ -2,15 +2,15 @@ import json
 import os
 import uuid
 from pathlib import Path
-from typing import List
+
 from fastapi import FastAPI
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
-from app.agent.router import handle_message, handle_message_stream
 from app.agent.memory import get_session
-from app.data.models import init_db, ConversationSession, Message
-from app.services.observability import init_logging, Timer
+from app.agent.router import handle_message_stream
+from app.data.models import ConversationSession, Message, init_db
+from app.services.observability import Timer, init_logging
 
 # Lazy import observability to avoid circular dependencies
 _logger = None
@@ -41,7 +41,14 @@ def get_db_session():
     return _db_session_factory()
 
 
-def persist_message(session_id: str, role: str, content: str, intent: str = None, processing_time_ms: float = None, tokens_used: int = None):
+def persist_message(
+    session_id: str,
+    role: str,
+    content: str,
+    intent: str = None,
+    processing_time_ms: float = None,
+    tokens_used: int = None,
+):
     """Persist a chat message to the SQLite database."""
     db = get_db_session()
     try:
@@ -117,7 +124,7 @@ async def chat(req: ChatRequest):
     """Chat endpoint with streaming responses and observability."""
     state = get_session(req.session_id)
     logger = get_logger_instance()
-    
+
     async def event_generator():
         try:
             with Timer("/chat") as timer:
@@ -304,10 +311,10 @@ async def get_lifecycle_stats():
 
 
 @app.post("/api/v1/rag/ingest")
-async def ingest_document(file_path: str, description: str = "", tags: List[str] = None):
+async def ingest_document(file_path: str, description: str = "", tags: list[str] = None):
     """Ingest or update a document in the knowledge base."""
     from app.rag.data_lifecycle import RAGDataLifecycle
-    
+
     lifecycle = RAGDataLifecycle()
     try:
         result = lifecycle.ingest_document(file_path, description, tags)

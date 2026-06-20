@@ -1,6 +1,7 @@
-from typing import Dict, Any
+from typing import Any
 
-def init_state() -> Dict[str, Any]:
+
+def init_state() -> dict[str, Any]:
     return {
         "intent": None,
         "tool_state": {

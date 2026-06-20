@@ -1,10 +1,11 @@
-from typing import AsyncGenerator
-from app.services.llm import get_llm
-from app.rag.retriever import get_retriever # Import get_retriever from its new location
-from langchain_core.messages import HumanMessage
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.runnables import RunnablePassthrough
+from collections.abc import AsyncGenerator
+
 from langchain_core.output_parsers import StrOutputParser
+from langchain_core.prompts import ChatPromptTemplate
+
+from app.rag.retriever import get_retriever  # Import get_retriever from its new location
+from app.services.llm import get_llm
+
 
 def handle_rag(query: str, state: dict) -> str:
     """
@@ -19,7 +20,12 @@ def handle_rag(query: str, state: dict) -> str:
 
     # Create prompt with context
     prompt_template = ChatPromptTemplate.from_messages([
-        ("system", "You are an AI assistant for an e-commerce company. Answer the user's question based on the provided documents. If the answer is not in the documents, state that you don't know. Do not make up answers.\n\nContext:\n{context}"),
+        ("system", (
+            "You are an AI assistant for an e-commerce company. "
+            "Answer the user's question based on the provided documents. "
+            "If the answer is not in the documents, state that you don't know. "
+            "Do not make up answers.\n\nContext:\n{context}"
+        )),
         ("user", "{question}")
     ])
 
@@ -39,12 +45,17 @@ async def handle_rag_stream(query: str, state: dict) -> AsyncGenerator[str, None
 
     # Create prompt with context
     prompt_template = ChatPromptTemplate.from_messages([
-        ("system", "You are an AI assistant for an e-commerce company. Answer the user's question based on the provided documents. If the answer is not in the documents, state that you don't know. Do not make up answers.\n\nContext:\n{context}"),
+        ("system", (
+            "You are an AI assistant for an e-commerce company. "
+            "Answer the user's question based on the provided documents. "
+            "If the answer is not in the documents, state that you don't know. "
+            "Do not make up answers.\n\nContext:\n{context}"
+        )),
         ("user", "{question}")
     ])
 
     chain = prompt_template | llm | StrOutputParser()
-    
+
     # Stream the response using astream
     async for chunk in chain.astream({"context": context, "question": query}):
         yield chunk
