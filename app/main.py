@@ -30,6 +30,7 @@ from app.agent.memory import get_session, save_session
 from app.agent.router import handle_message_stream
 from app.auth.dependencies import verify_token
 from app.data.models import ConversationSession, Message, init_db
+from app.exceptions import AppError
 from app.pii.redactor import redact, redact_message
 from app.services.observability import Timer, init_logging
 
@@ -350,12 +351,24 @@ async def chat(
             })
 
             await save_session(req.session_id, state)
+        except AppError as e:
+            logger.log_error("chat_error", e.log_message)
+            from contextlib import suppress
+            with suppress(Exception):
+                await save_session(req.session_id, state)
+            yield json.dumps({
+                "error": e.user_message,
+                "error_type": type(e).__name__,
+            }) + "\n"
         except Exception as e:
             logger.log_error("chat_error", str(e))
             from contextlib import suppress
             with suppress(Exception):
                 await save_session(req.session_id, state)
-            yield json.dumps({"error": str(e)}) + "\n"
+            yield json.dumps({
+                "error": "An unexpected error occurred. Please try again.",
+                "error_type": "InternalError",
+            }) + "\n"
 
     return StreamingResponse(event_generator(), media_type="application/x-ndjson")
 

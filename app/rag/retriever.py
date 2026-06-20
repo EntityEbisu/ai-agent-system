@@ -10,6 +10,7 @@ import threading
 
 from langchain_community.vectorstores import Chroma
 
+from app.exceptions import RetrieverError
 from app.services.llm import get_embeddings
 from config import APIConfig
 
@@ -25,16 +26,22 @@ def get_retriever():
     reuse the same instance. Thread-safe via double-checked locking.
 
     Returns:
-        Chroma retriever instance that can be used in RAG chains.
+        Chroma retriever instance.
+
+    Raises:
+        RetrieverError: If ChromaDB cannot be loaded.
     """
     global _retriever
     if _retriever is None:
         with _retriever_lock:
             if _retriever is None:
-                embeddings = get_embeddings()
-                db = Chroma(
-                    persist_directory=APIConfig.CHROMA_PERSIST_DIR,
-                    embedding_function=embeddings,
-                )
-                _retriever = db.as_retriever()
+                try:
+                    embeddings = get_embeddings()
+                    db = Chroma(
+                        persist_directory=APIConfig.CHROMA_PERSIST_DIR,
+                        embedding_function=embeddings,
+                    )
+                    _retriever = db.as_retriever()
+                except Exception as e:
+                    raise RetrieverError(str(e)) from e
     return _retriever
