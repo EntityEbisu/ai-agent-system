@@ -1,5 +1,9 @@
 # Phase D-lite — Tests, CI & Deploy
 
+**Instructions for you (the human):** Open a **fresh Hermes chat** and paste this entire file as the first message. Do not carry over context from previous sessions.
+
+**Session instructions for the agent:**
+
 **Branch:** `phase-d/` (create from `main` after Phase C is merged)
 **Mode:** AUTONOMOUS — proceed through all steps without asking for approval.
 **Phase plan:** `audit-reports/audit-phase-D.md`

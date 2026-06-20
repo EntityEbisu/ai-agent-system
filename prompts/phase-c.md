@@ -1,5 +1,9 @@
 # Phase C — Real Memory & RAG
 
+**Instructions for you (the human):** Open a **fresh Hermes chat** and paste this entire file as the first message. Do not carry over context from previous sessions.
+
+**Session instructions for the agent:**
+
 **Branch:** `phase-c/` (create from `main` after Phase B is merged)
 **Mode:** SEMI-AUTONOMOUS — proceed through steps autonomously. Stop and ask at the single flagged decision point.
 **Phase plan:** `audit-reports/audit-phase-C.md`

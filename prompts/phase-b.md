@@ -1,5 +1,9 @@
 # Phase B — Rebuild the Agent
 
+**Instructions for you (the human):** Open a **fresh Hermes chat** and paste this entire file as the first message. Do not carry over context from previous sessions.
+
+**Session instructions for the agent:**
+
 **Branch:** `phase-b/` (create from `main` after Phase A is merged)
 **Mode:** COLLABORATIVE — propose each design decision before implementing code.
 **Phase plan:** `audit-reports/audit-phase-B.md`
