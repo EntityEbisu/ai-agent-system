@@ -46,10 +46,21 @@ def persist_message(
     role: str,
     content: str,
     intent: str = None,
+    context_type: str = None,
     processing_time_ms: float = None,
     tokens_used: int = None,
 ):
-    """Persist a chat message to the SQLite database."""
+    """Persist a chat message to the SQLite database.
+
+    Args:
+        session_id: Unique session identifier.
+        role: Message role ("user", "assistant", "system").
+        content: Message body text.
+        intent: Classified intent (e.g., "rag", "order_status").
+        context_type: Session context type, synced with intent on assistant messages.
+        processing_time_ms: How long the response took to generate.
+        tokens_used: Token count for cost tracking.
+    """
     db = get_db_session()
     try:
         conversation = db.query(ConversationSession).filter_by(id=session_id).first()
@@ -57,6 +68,9 @@ def persist_message(
             conversation = ConversationSession(id=session_id)
             db.add(conversation)
             db.commit()
+        # Sync context_type from the message's intent when available
+        if context_type is not None:
+            conversation.context_type = context_type
         message = Message(
             id=str(uuid.uuid4()),
             session_id=session_id,
@@ -140,7 +154,8 @@ async def chat(req: ChatRequest):
                     session_id=req.session_id,
                     role="user",
                     content=req.message,
-                    intent=state.get("intent")
+                    intent=state.get("intent"),
+                    context_type=state.get("intent"),
                 )
 
                 full_response = ""
@@ -174,6 +189,7 @@ async def chat(req: ChatRequest):
                 role="assistant",
                 content=full_response,
                 intent=state.get("intent"),
+                context_type=state.get("intent"),
                 processing_time_ms=timer.elapsed_ms,
                 tokens_used=total_tokens
             )

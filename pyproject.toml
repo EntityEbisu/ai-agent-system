@@ -27,6 +27,7 @@ dependencies = [
     "pypdf>=5.0",
     "httpx>=0.28",
     "requests>=2.31",
+    "alembic>=1.18",
     "pyjwt>=2.8",
     "slowapi>=0.1.9",
     "presidio-analyzer>=2.2",
