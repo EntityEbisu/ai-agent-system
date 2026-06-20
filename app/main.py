@@ -11,11 +11,12 @@ Implements:
 
 import json
 import os
+import re
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -119,6 +120,31 @@ def _get_user_id(payload: dict | None) -> str | None:
     if payload and "sub" in payload:
         return payload["sub"]
     return None
+
+
+def _validate_tags(tags: list[str] | None) -> None:
+    """Validate tag constraints: max 20, each ≤64 chars, alphanumeric/hyphen.
+
+    Args:
+        tags: List of tag strings to validate.
+
+    Raises:
+        HTTPException 400: If constraints are violated.
+    """
+    if tags is None:
+        return
+    if len(tags) > 20:
+        raise HTTPException(400, "Maximum of 20 tags allowed")
+    tag_pattern = re.compile(r"^[a-zA-Z0-9\-]+$")
+    for t in tags:
+        if len(t) > 64:
+            raise HTTPException(
+                400, f"Tag too long (max 64 chars): {t[:32]}..."
+            )
+        if not tag_pattern.match(t):
+            raise HTTPException(
+                400, f"Tag must be alphanumeric or hyphens: {t}"
+            )
 
 
 async def _optional_auth(
@@ -473,6 +499,9 @@ async def get_lifecycle_stats(
     return JSONResponse(status_code=200, content=stats)
 
 
+
+
+
 @app.post("/api/v1/rag/ingest")
 @limiter.limit("60/minute")
 async def ingest_document(
@@ -482,18 +511,76 @@ async def ingest_document(
     tags: list[str] | None = None,
     token_payload: dict = Depends(verify_token),
 ):
-    """Ingest or update a document in the knowledge base.
+    """Ingest a document located on the server under ``DOCS_DIR``.
 
-    .. caution::
-       ``file_path`` is validated to stay under the configured ``DOCS_DIR``.
-       Use ``POST /api/v1/rag/upload`` (when implemented) for file uploads.
+    ``file_path`` is resolved relative to ``config.APIConfig.DOCS_DIR``
+    and must stay within that directory (path traversal is rejected).
+    Use ``POST /api/v1/rag/upload`` to upload a new file.
     """
+    import config
+
+    _validate_tags(tags)
+
+    root = Path(config.APIConfig.DOCS_DIR).resolve()
+    target = (root / file_path).resolve()
+    if not target.is_relative_to(root):
+        raise HTTPException(400, "file_path must be under DOCS_DIR")
+    if not target.exists():
+        raise HTTPException(404, f"File not found: {file_path}")
+
     from app.rag.data_lifecycle import RAGDataLifecycle
+
     lifecycle = RAGDataLifecycle()
     try:
-        result = lifecycle.ingest_document(file_path, description, tags)
+        result = lifecycle.ingest_document(str(target), description, tags)
         return JSONResponse(status_code=200, content=result)
     except Exception as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
+
+
+@app.post("/api/v1/rag/upload")
+@limiter.limit("60/minute")
+async def upload_document(
+    request: Request,
+    file: UploadFile = File(...),
+    description: str = "",
+    tags: list[str] | None = None,
+    token_payload: dict = Depends(verify_token),
+):
+    """Upload a file under ``DOCS_DIR`` and ingest it into the knowledge base.
+
+    The file is saved with a server-generated UUID name, so client paths
+    are never trusted. The recommended ingestion path.
+    """
+    import config
+
+    _validate_tags(tags)
+
+    docs_dir = Path(config.APIConfig.DOCS_DIR).resolve()
+    docs_dir.mkdir(parents=True, exist_ok=True)
+
+    ext = Path(file.filename or "upload.pdf").suffix if file.filename else ".pdf"
+    safe_name = f"{uuid.uuid4().hex}{ext}"
+    dest = docs_dir / safe_name
+
+    try:
+        content = await file.read()
+        dest.write_bytes(content)
+    except Exception as e:
+        raise HTTPException(400, f"Failed to save uploaded file: {e}") from e
+
+    from app.rag.data_lifecycle import RAGDataLifecycle
+
+    lifecycle = RAGDataLifecycle()
+    try:
+        result = lifecycle.ingest_document(str(dest), description, tags)
+        return JSONResponse(
+            status_code=200,
+            content={**result, "stored_path": str(dest)},
+        )
+    except Exception as e:
+        # Clean up on ingest failure
+        dest.unlink(missing_ok=True)
         return JSONResponse(status_code=400, content={"error": str(e)})
 
 

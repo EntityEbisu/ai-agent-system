@@ -32,6 +32,7 @@ class APIConfig:
 
     # PDF Configuration
     PDF_PATH = os.getenv("PDF_PATH", "data/docs/Company-10k-18pages.pdf")
+    DOCS_DIR = os.getenv("DOCS_DIR", "data/docs")
 
     @classmethod
     def validate_llm(cls):
