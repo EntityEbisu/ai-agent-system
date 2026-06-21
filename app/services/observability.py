@@ -1,201 +1,205 @@
 """
-Observability and logging infrastructure (Level 300).
+Observability — structured logging with structlog, PII redaction, and request context.
 
-Provides structured logging, metrics tracking, and token usage monitoring.
+Replaces the custom ``StructuredLogger`` with ``structlog`` configured for JSON
+output to stdout.  Every log line automatically carries ``request_id``,
+``session_id``, and ``user_id`` context vars.  PII is redacted from all string
+fields before serialization.
+
+Usage::
+
+    from app.services.observability import get_logger
+
+    logger = get_logger()
+    logger.info("request_received", endpoint="/chat", method="POST")
+    logger.error("db_write_error", error=str(e), session_id="sess_1")
 """
 
-import json
 import logging
+import os
 import time
 from contextvars import ContextVar
-from datetime import datetime
-from pathlib import Path
 from typing import Any
 
-import pythonjsonlogger.jsonlogger
+import structlog
+from structlog.contextvars import bind_contextvars, clear_contextvars, merge_contextvars
 
-# Context variables for request tracking
-request_id: ContextVar[str] = ContextVar('request_id', default='unknown')
-session_id: ContextVar[str] = ContextVar('session_id', default='unknown')
+from app.pii.redactor import redact
 
+# ---------------------------------------------------------------------------
+# Context variables — automatically attached to every log line
+# ---------------------------------------------------------------------------
 
-class StructuredLogger:
-    """Provides structured JSON logging and basic metrics."""
+request_id: ContextVar[str] = ContextVar("request_id", default="unknown")
+session_id: ContextVar[str] = ContextVar("session_id", default="unknown")
+user_id: ContextVar[str] = ContextVar("user_id", default="unknown")
 
-    def __init__(self, name: str, log_file: str | None = None, log_level: str = "INFO"):
-        """
-        Initialize structured logger.
-
-        Args:
-            name: Logger name
-            log_file: Path to log file (if None, logs to console only)
-            log_level: Logging level (INFO, DEBUG, WARNING, ERROR)
-        """
-        self.logger = logging.getLogger(name)
-        self.logger.setLevel(getattr(logging, log_level))
-        self.logger.propagate = False
-
-        # Avoid duplicate handlers if logger is initialized multiple times
-        if self.logger.handlers:
-            return
-
-        # Console handler with JSON formatting
-        console_handler = logging.StreamHandler()
-        console_formatter = pythonjsonlogger.jsonlogger.JsonFormatter(
-            '%(timestamp)s %(level)s %(name)s %(message)s'
-        )
-        console_handler.setFormatter(console_formatter)
-        self.logger.addHandler(console_handler)
-
-        # File handler (if specified)
-        if log_file:
-            log_path = Path(log_file)
-            log_path.parent.mkdir(parents=True, exist_ok=True)
-            file_handler = logging.FileHandler(log_file)
-            file_handler.setFormatter(console_formatter)
-            self.logger.addHandler(file_handler)
-
-    def log_request(self, endpoint: str, method: str, session_id: str, message_preview: str):
-        """Log incoming request."""
-        self.logger.info(
-            json.dumps({
-                "event": "request_received",
-                "endpoint": endpoint,
-                "method": method,
-                "session_id": session_id,
-                "message_preview": message_preview[:50],  # First 50 chars
-                "timestamp": datetime.utcnow().isoformat(),
-            })
-        )
-
-    def log_response(self, endpoint: str, status: str, latency_ms: float, tokens_used: int | None = None,
-                    prompt_tokens: int | None = None, completion_tokens: int | None = None):
-        """Log response with metrics."""
-        event_data = {
-            "event": "response_sent",
-            "endpoint": endpoint,
-            "status": status,
-            "latency_ms": latency_ms,
-            "tokens_used": tokens_used,
-            "timestamp": datetime.utcnow().isoformat(),
-        }
-        # Add detailed token breakdown if available
-        if prompt_tokens is not None:
-            event_data["prompt_tokens"] = prompt_tokens
-        if completion_tokens is not None:
-            event_data["completion_tokens"] = completion_tokens
-
-        self.logger.info(json.dumps(event_data))
-
-    def log_rag_retrieval(self, query: str, chunks_retrieved: int, latency_ms: float):
-        """Log RAG retrieval event."""
-        self.logger.info(
-            json.dumps({
-                "event": "rag_retrieval",
-                "query_preview": query[:50],
-                "chunks_retrieved": chunks_retrieved,
-                "latency_ms": latency_ms,
-                "timestamp": datetime.utcnow().isoformat(),
-            })
-        )
-
-    def log_tool_execution(self, tool_name: str, success: bool, latency_ms: float, error: str | None = None):
-        """Log tool execution."""
-        self.logger.info(
-            json.dumps({
-                "event": "tool_execution",
-                "tool_name": tool_name,
-                "success": success,
-                "latency_ms": latency_ms,
-                "error": error,
-                "timestamp": datetime.utcnow().isoformat(),
-            })
-        )
-
-    def log_error(self, error_type: str, message: str, context: dict[str, Any] | None = None):
-        """Log error event."""
-        self.logger.error(
-            json.dumps({
-                "event": "error",
-                "error_type": error_type,
-                "message": message,
-                "context": context or {},
-                "timestamp": datetime.utcnow().isoformat(),
-            })
-        )
+# ---------------------------------------------------------------------------
+# PII redaction processor
+# ---------------------------------------------------------------------------
 
 
-class MetricsCollector:
-    """Simple in-memory metrics collector (Level 300 - E2)."""
+def _redact_pii_processor(
+    _logger: structlog.stdlib.BoundLogger,
+    _method_name: str,
+    event_dict: dict[str, Any],
+) -> dict[str, Any]:
+    """Run the PII regex redactor over every string field in the event dict.
 
-    def __init__(self):
-        self.metrics: dict[str, Any] = {}
+    This catches PII in log messages, error descriptions, and any other
+    string-typed field before serialization.
+    """
+    for key, value in event_dict.items():
+        if isinstance(value, str):
+            event_dict[key] = redact(value)
+        elif isinstance(value, dict):
+            event_dict[key] = _redact_nested(value)
+        elif isinstance(value, list):
+            event_dict[key] = _redact_list(value)
+    return event_dict
 
-    def record_latency(self, endpoint: str, latency_ms: float):
-        """Record endpoint latency."""
-        key = f"latency_{endpoint}"
-        if key not in self.metrics:
-            self.metrics[key] = []
-        self.metrics[key].append(latency_ms)
 
-    def record_tokens(self, tokens_used: int, cost_usd: float):
-        """Record token usage and cost."""
-        if "tokens_used" not in self.metrics:
-            self.metrics["tokens_used"] = []
-        if "cost_usd" not in self.metrics:
-            self.metrics["cost_usd"] = []
-        self.metrics["tokens_used"].append(tokens_used)
-        self.metrics["cost_usd"].append(cost_usd)
-
-    def record_tool_success(self, tool_name: str, success: bool):
-        """Record tool execution result."""
-        key = f"tool_success_{tool_name}"
-        if key not in self.metrics:
-            self.metrics[key] = {"success": 0, "failed": 0}
-        if success:
-            self.metrics[key]["success"] += 1
+def _redact_nested(d: dict[str, Any]) -> dict[str, Any]:
+    """Recursively redact strings inside a nested dict."""
+    result: dict[str, Any] = {}
+    for k, v in d.items():
+        if isinstance(v, str):
+            result[k] = redact(v)
+        elif isinstance(v, dict):
+            result[k] = _redact_nested(v)
+        elif isinstance(v, list):
+            result[k] = _redact_list(v)
         else:
-            self.metrics[key]["failed"] += 1
-
-    def get_summary(self) -> dict[str, Any]:
-        """Get metrics summary."""
-        summary = {}
-        for key, values in self.metrics.items():
-            if isinstance(values, list):
-                summary[key] = {
-                    "count": len(values),
-                    "avg": sum(values) / len(values) if values else 0,
-                    "min": min(values) if values else 0,
-                    "max": max(values) if values else 0,
-                }
-            elif isinstance(values, dict):
-                summary[key] = values
-        return summary
+            result[k] = v
+    return result
 
 
-# Global instances
-logger: StructuredLogger | None = None
-metrics: MetricsCollector = MetricsCollector()
+def _redact_list(items: list[Any]) -> list[Any]:
+    """Recursively redact strings inside a list."""
+    result: list[Any] = []
+    for item in items:
+        if isinstance(item, str):
+            result.append(redact(item))
+        elif isinstance(item, dict):
+            result.append(_redact_nested(item))
+        elif isinstance(item, list):
+            result.append(_redact_list(item))
+        else:
+            result.append(item)
+    return result
 
 
-def init_logging(log_file: str | None = None, log_level: str = "INFO"):
-    """Initialize global logger."""
-    global logger
-    logger = StructuredLogger("ai-agent-system", log_file=log_file, log_level=log_level)
+# ---------------------------------------------------------------------------
+# structlog configuration
+# ---------------------------------------------------------------------------
+
+_configured = False
 
 
-def get_logger() -> StructuredLogger:
-    """Get global logger instance."""
-    global logger
-    if logger is None:
+def init_logging(log_file: str | None = None, log_level: str = "INFO") -> None:
+    """Configure structlog once at startup.
+
+    Args:
+        log_file: Ignored — structlog always writes JSON to stdout.
+            (The ``log_file`` parameter is kept for backward compatibility.)
+        log_level: Minimum log level (e.g. ``INFO``, ``DEBUG``).
+    """
+    global _configured
+    if _configured:
+        return
+    _configured = True
+
+    level = getattr(logging, log_level.upper(), logging.INFO)
+
+    structlog.configure(
+        wrapper_class=structlog.stdlib.BoundLogger,
+        logger_factory=structlog.stdlib.LoggerFactory(),
+        cache_logger_on_first_use=True,
+        processors=[
+            structlog.stdlib.add_log_level,
+            structlog.stdlib.add_logger_name,
+            merge_contextvars,
+            structlog.dev.set_exc_info,
+            structlog.processors.TimeStamper(fmt="iso"),
+            _redact_pii_processor,
+            structlog.processors.JSONRenderer(),
+        ],
+        context_class=dict,
+    )
+
+    # Set the root logger to the requested level
+    logging.getLogger().setLevel(level)
+    # Silence noisy third-party loggers
+    for name in ("httpx", "httpcore", "urllib3", "chromadb", "sqlalchemy"):
+        logging.getLogger(name).setLevel(logging.WARNING)
+
+
+# ---------------------------------------------------------------------------
+# Logger accessor
+# ---------------------------------------------------------------------------
+
+_logger: structlog.stdlib.BoundLogger | None = None
+
+
+def get_logger() -> structlog.stdlib.BoundLogger:
+    """Return the global structlog logger (initialized on first call)."""
+    global _logger
+    if _logger is None:
         init_logging()
-    # logger is guaranteed non-None after init_logging
-    assert logger is not None
-    return logger
+        _logger = structlog.get_logger("ai-agent-system")
+    return _logger
+
+
+def get_logger_instance() -> structlog.stdlib.BoundLogger:
+    """Alias for ``get_logger()`` (for backward compatibility)."""
+    return get_logger()
+
+
+# ---------------------------------------------------------------------------
+# Request context helper
+# ---------------------------------------------------------------------------
+
+
+def bind_request_context(
+    *,
+    request_id: str = "unknown",
+    session_id: str = "unknown",
+    user_id: str = "unknown",
+) -> None:
+    """Bind context vars for the current request so every log line picks them up.
+
+    Call this at the start of each request (e.g. in a FastAPI middleware).
+
+    Example::
+
+        bind_request_context(
+            request_id="req_abc123",
+            session_id="sess_456",
+            user_id="u1",
+        )
+    """
+    bind_contextvars(
+        request_id=request_id,
+        session_id=session_id,
+        user_id=user_id,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Timer — context manager for measuring elapsed time
+# ---------------------------------------------------------------------------
 
 
 class Timer:
-    """Context manager for timing operations."""
+    """Context manager that records elapsed wall-clock time in milliseconds.
+
+    Usage::
+
+        with Timer(\"/chat\") as timer:
+            ...  # do work
+
+        print(timer.elapsed_ms)  # float
+    """
 
     def __init__(self, name: str) -> None:
         self.name = name

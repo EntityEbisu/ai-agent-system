@@ -34,7 +34,9 @@ pypdf==6.10.2
 python-dotenv==1.2.2
 
 # Structured logging
-python-json-logger==4.1.0
+structlog==25.1.0
+# Prometheus metrics
+prometheus-client==0.21.1
 
 # Retry & resilience
 tenacity==8.5.0

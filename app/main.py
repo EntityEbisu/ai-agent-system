@@ -33,6 +33,20 @@ from app.data.models import ConversationSession, Message, init_db
 from app.exceptions import AppError
 from app.memory.episodic import EpisodicMemory
 from app.pii.redactor import redact, redact_message
+from app.services.metrics import (
+    agent_aborted_total,
+    agent_decision_total,
+    agent_iterations_per_session,
+    http_request_duration_seconds,
+    http_requests_total,
+    observe_tool,
+    openrouter_spend_usd_total,
+    retrieval_chunks_returned,
+    retrieval_duration_seconds,
+    setup_metrics,
+    tool_duration_seconds,
+    tool_invocations_total,
+)
 from app.services.observability import Timer, init_logging
 
 # Lazy-import observability helpers to avoid circular deps
@@ -73,6 +87,9 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+# Attach Prometheus /metrics endpoint
+setup_metrics(app)
 
 # Register rate-limit error handler
 app.state.limiter = limiter
@@ -173,14 +190,14 @@ async def startup_event():
     import config
     from app.services.observability import get_logger_instance
     logger = get_logger_instance()
-    logger.log_info("startup", f"Chroma collection: {config.APIConfig.CHROMA_COLLECTION}")
+    logger.info("startup", message=f"Chroma collection: {config.APIConfig.CHROMA_COLLECTION}")
     try:
         from app.rag.retriever import get_retriever
         retriever = get_retriever()
         retriever.invoke("startup probe")
-        logger.log_info("startup", "Chroma collection accessible — startup OK")
+        logger.info("startup", message="Chroma collection accessible \u2014 startup OK")
     except Exception as e:
-        logger.log_warning("startup", f"Chroma not ready at startup: {e}")
+        logger.warning("startup", message=f"Chroma not ready at startup: {e}")
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -274,7 +291,7 @@ def persist_message(session_id, role, content, intent=None, context_type=None,
         db.commit()
     except Exception as e:
         logger = get_logger_instance()
-        logger.log_error("db_write_error", str(e), {"session_id": session_id})
+        logger.error("db_write_error", message=str(e), session_id=session_id)
         db.rollback()
     finally:
         db.close()
@@ -290,12 +307,11 @@ def get_logger_instance():
 
 
 def get_metrics_instance():
-    """Lazy-load metrics."""
-    global _metrics
-    if _metrics is None:
-        from app.services.observability import metrics
-        _metrics = metrics
-    return _metrics
+    """Legacy compatibility stub — returns None.
+
+    Use ``app.services.metrics`` module directly instead.
+    """
+    return None
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -319,7 +335,9 @@ async def chat(
     # Redact PII in logged message preview
     redacted_preview = redact(req.message[:100])
 
-    logger.log_request(
+    http_requests_total.labels(endpoint="/chat", status="200").inc()
+    logger.info(
+        "request_received",
         endpoint="/chat",
         method="POST",
         session_id=req.session_id,
@@ -351,13 +369,16 @@ async def chat(
                 msgs = result.get("messages", [])
                 response = msgs[-1].content if msgs else "I'm processing your request..."
 
-        get_metrics_instance().record_latency("/chat", timer.elapsed_ms)
+        http_request_duration_seconds.labels(endpoint="/chat").observe(
+            timer.elapsed_ms / 1000.0
+        )
 
         estimated_user_tokens = len(req.message) // 4
         estimated_response_tokens = len(response) // 4
         total_tokens = estimated_user_tokens + estimated_response_tokens
 
-        logger.log_response(
+        logger.info(
+            "response_sent",
             endpoint="/chat",
             status="success",
             latency_ms=timer.elapsed_ms,
@@ -395,9 +416,11 @@ async def chat(
                         messages=result.get("messages", []),
                     )
             except Exception:
-                logger.log_error("episodic_store_error",
-                                 "Failed to store episodic summary",
-                                 {"session_id": req.session_id})
+                logger.error(
+                    "episodic_store_error",
+                    message="Failed to store episodic summary",
+                    session_id=req.session_id,
+                )
 
         return JSONResponse(
             status_code=200,
@@ -405,7 +428,7 @@ async def chat(
         )
 
     except AppError as e:
-        logger.log_error("chat_error", e.log_message)
+        logger.error("chat_error", message=e.log_message)
         return JSONResponse(
             status_code=500,
             content={
@@ -414,7 +437,7 @@ async def chat(
             },
         )
     except Exception as e:
-        logger.log_error("chat_error", str(e))
+        logger.error("chat_error", message=str(e))
         return JSONResponse(
             status_code=500,
             content={
@@ -685,10 +708,7 @@ async def global_exception_handler(request: Request, exc: Exception):
     """Catch-all handler returning sanitized RFC-7807-like problem details."""
     logger = get_logger_instance()
     trace_id = str(uuid.uuid4())[:8]
-    logger.log_error("unhandled_error", str(exc), {
-        "trace_id": trace_id,
-        "path": str(request.url),
-    })
+    logger.error("unhandled_error", message=str(exc), trace_id=trace_id, path=str(request.url))
     return JSONResponse(
         status_code=500,
         content={
