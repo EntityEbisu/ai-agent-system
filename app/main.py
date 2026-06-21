@@ -217,14 +217,36 @@ async def health(request: Request):
 @app.get("/readyz")
 @limiter.exempt
 async def readyz(request: Request):
-    """Readiness check — confirms DB is reachable."""
+    """Readiness check — confirms DB and Chroma persist dir are reachable."""
+    from pathlib import Path
+    from config import APIConfig
+    health_checks: dict[str, str | bool] = {}
+    ok = True
+
+    # SQLite
     try:
         get_db_session().close()
-        return JSONResponse(status_code=200, content={"status": "ready"})
+        health_checks["database"] = True
     except Exception as e:
-        return JSONResponse(
-            status_code=503, content={"status": "not ready", "detail": str(e)}
+        health_checks["database"] = str(e)
+        ok = False
+
+    # Chroma persist directory
+    chroma_path = Path(APIConfig.CHROMA_PERSIST_DIR)
+    if chroma_path.exists():
+        health_checks["chroma_store"] = True
+    else:
+        health_checks["chroma_store"] = f"not found at {chroma_path}"
+        health_checks["chroma_warn"] = (
+            "Chroma not seeded — run data/docs/demo-chroma-docs.sh first"
         )
+
+    status = "ready" if ok else "not ready"
+    code = 200 if ok else 503
+    return JSONResponse(
+        status_code=code,
+        content={"status": status, **health_checks},
+    )
 
 
 @app.post("/api/v1/auth/token")

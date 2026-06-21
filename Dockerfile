@@ -1,48 +1,53 @@
-# Dockerfile (root)
+# Dockerfile – single-stage, CPU-only build
+#
+# Strategy:
+#   1. Install CPU-only PyTorch from the official CPU-only index.
+#   2. Install all other dependencies via requirements.txt.
+#   3. The requirements.txt does NOT list torch (it's installed in step 1),
+#      preventing pip from pulling the GPU bundle (nvidia-*, triton).
+#   4. Remove the nvidia-* packages that onnxruntime (chromadb dep) pulls in
+#      as optional CUDA libraries — they're never loaded on a CPU-only host.
 
-# ---- Base image -----------------------------------------------------------
-# Use the official lightweight Python 3.11 image.
-# Python 3.11 is pinned for compatibility with sentence-transformers
-# and to avoid GPU-package overhead on CPU-only deployments.
-FROM python:3.11-slim-bookworm AS base
+FROM python:3.11-slim-bookworm
 
-# ---- Build stage -----------------------------------------------------------
-# Install system‑level dependencies required by sentence-transformers
-# (the HuggingFace embedding model) and PyTorch CPU build.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        build-essential \
-        git \
-        curl && \
+        curl \
+        && \
     rm -rf /var/lib/apt/lists/*
 
-# Create a non‑root user (security best practice)
+# Create non-root user
 ARG UID=1000
 ARG GID=1000
 RUN addgroup --gid $GID appuser && \
     adduser --uid $UID --gid $GID --disabled-password --gecos "" appuser
 
-# Set working directory
 WORKDIR /app
 
-# ---- Install Python dependencies -------------------------------------------
-COPY requirements.txt .
-# Install CPU-only PyTorch first to avoid pulling GPU packages
-RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu && \
-    pip install --no-cache-dir -r requirements.txt
+# Install CPU-only PyTorch from the official CPU-only index
+RUN pip install --no-cache-dir torch==2.6.0 --index-url https://download.pytorch.org/whl/cpu
 
-# ---- Copy application code -------------------------------------------------
+# Install remaining Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Remove CUDA packages that onnxruntime (chromadb dep) pulls in but never uses
+# on a CPU-only machine.  This reclaims ~2 GB.  triton is also GPU-only.
+RUN pip uninstall -y \
+    nvidia-cublas-cu12 nvidia-cuda-cupti-cu12 nvidia-cuda-nvrtc-cu12 \
+    nvidia-cuda-runtime-cu12 nvidia-cudnn-cu12 nvidia-cufft-cu12 \
+    nvidia-curand-cu12 nvidia-cusolver-cu12 nvidia-cusparse-cu12 \
+    nvidia-cusparselt-cu12 nvidia-nccl-cu12 nvidia-nvjitlink-cu12 \
+    nvidia-nvtx-cu12 triton \
+    2>/dev/null || true
+
+# Copy application code
 COPY . .
 
-# Change ownership to the non‑root user
 RUN chown -R appuser:appuser /app
 
-# ---- Runtime --------------------------------------------------------------
 USER appuser
 
-# Expose the FastAPI port (default in `app/main.py` is 8000)
 EXPOSE 8000
 
-# Entrypoint – start the server in reload mode for development or without it
-# for production.  The CI/CD pipeline can override the command if needed.
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

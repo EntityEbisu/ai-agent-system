@@ -42,14 +42,19 @@ class TestHealthEndpoint:
 
 
 class TestReadyzEndpoint:
-    """GET /readyz — no auth required."""
+    """GET /readyz — confirms database + Chroma store reachable."""
 
     async def test_readyz_returns_200_when_db_writable(self, client: AsyncClient):
-        """DB initializes when the data dir is writable."""
+        """The readyz endpoint should return 200 + status:ready when everything works."""
         resp = await client.get("/readyz")
         assert resp.status_code == 200
         body = resp.json()
         assert body["status"] == "ready"
+        assert body["database"] is True
+        # Chroma store check — directory may or may not exist in CI
+        assert "chroma_store" in body
+        if body["chroma_store"] is not True:
+            assert "chroma_warn" in body
 
 
 class TestMetricsEndpoint:
