@@ -42,7 +42,10 @@ optional-dependencies = {dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
     "pytest-httpx>=0.30",
+    "pytest-cov>=5.0",
     "httpx>=0.28",
+    "respx>=0.21",
+    "bandit>=1.7",
 ]}
 
 [tool.setuptools.packages.find]
@@ -80,3 +83,20 @@ ignore_errors = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = [
+    "slow: marks tests as slow (excluded from CI by default).",
+]
+
+[tool.bandit]
+exclude_dirs = ["tests", ".github"]
+skips = ["B101", "B311"]
+
+[tool.coverage.run]
+omit = [
+    "app/main.py",
+    "app/agent/graph.py",
+    "app/agent/memory.py",
+    "app/memory/*",
+    "app/rag/*",
+    "app/services/data_introspection.py",
+]

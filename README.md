@@ -1,5 +1,7 @@
 # 🧠 Agentic Conversational AI System - E-commerce Customer Support Agent
 
+[![CI/CD Pipeline](https://github.com/EntityEbisu/ai-agent-system/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/EntityEbisu/ai-agent-system/actions/workflows/ci.yml)
+
 ## 📌 Overview
 
 This project is a **small-scale Agentic Conversational AI system** that simulates a real-world e-commerce customer support assistant, demonstrating production-ready conversational AI with RAG pipeline, order workflows, and observability.

@@ -1,4 +1,5 @@
 """Pytest configuration and shared fixtures."""
+import os
 import sys
 from pathlib import Path
 
@@ -6,3 +7,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
+# Set test environment variables before any app imports
+os.environ.setdefault("JWT_SECRET_KEY", "test-secret-key-for-testing-only")
