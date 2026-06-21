@@ -40,6 +40,7 @@ def get_retriever():
                     db = Chroma(
                         persist_directory=APIConfig.CHROMA_PERSIST_DIR,
                         embedding_function=embeddings,
+                        collection_name=APIConfig.CHROMA_COLLECTION,
                     )
                     _retriever = db.as_retriever()
                 except Exception as e:

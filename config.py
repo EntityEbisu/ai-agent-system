@@ -29,6 +29,7 @@ class APIConfig:
 
     # Vector Store Configuration
     CHROMA_PERSIST_DIR = os.getenv("CHROMA_PERSIST_DIR", "data/chroma_db")
+    CHROMA_COLLECTION = os.getenv("CHROMA_COLLECTION", "documents")
 
     # Re-ranker Configuration (v2-track — disabled by default)
     RERANKER_PROVIDER = os.getenv("RERANKER_PROVIDER", "")  # "" = none, "bge-reranker-base" for future

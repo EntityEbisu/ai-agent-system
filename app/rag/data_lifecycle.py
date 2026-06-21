@@ -6,6 +6,8 @@ Supports incremental updates to knowledge base without full re-ingestion.
 
 import hashlib
 import json
+import os
+import threading
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
@@ -37,15 +39,50 @@ class DocumentMetadata:
         return asdict(self)
 
 
+_instance = None
+_instance_lock = threading.Lock()
+
+
 class RAGDataLifecycle:
-    """Manages document versioning and lifecycle in Chroma."""
+    """Manages document versioning and lifecycle in Chroma.
+
+    Singleton — call ``RAGDataLifecycle.get_instance()`` to reuse the
+    same embedding model across requests instead of loading it per-call.
+    """
+
+    @classmethod
+    def get_instance(cls) -> "RAGDataLifecycle":
+        """Return the shared singleton, creating it on first call."""
+        global _instance
+        if _instance is None:
+            with _instance_lock:
+                if _instance is None:
+                    _instance = cls()
+        return _instance
 
     def __init__(self, chroma_persist_dir: str = config.APIConfig.CHROMA_PERSIST_DIR):
         self.chroma_persist_dir = chroma_persist_dir
         self.metadata_file = Path(chroma_persist_dir) / "document_metadata.json"
         self.embeddings = get_embeddings()
         self.db = None
+        self._collection = None
+        self._collection_lock = threading.Lock()
+        self._metadata_lock = threading.Lock()
         self._load_metadata()
+
+    def _get_collection(self):
+        """Lazy-init the Chroma collection handle for delete operations."""
+        if self._collection is None:
+            with self._collection_lock:
+                if self._collection is None:
+                    from langchain_community.vectorstores import Chroma
+                    chroma = Chroma(
+                        persist_directory=self.chroma_persist_dir,
+                        embedding_function=self.embeddings,
+                        collection_name=config.APIConfig.CHROMA_COLLECTION,
+                    )
+                    self._collection = chroma._collection
+        return self._collection
 
     def _load_metadata(self) -> dict[str, dict[str, Any]]:
         """Load document metadata from file."""
@@ -55,10 +92,18 @@ class RAGDataLifecycle:
         return {}
 
     def _save_metadata(self, metadata: dict[str, dict[str, Any]]):
-        """Save document metadata to file."""
+        """Save document metadata to file atomically.
+
+        Writes to a ``.tmp`` file then renames (``os.replace``), so a crash
+        mid-write never corrupts the persistent file.  Thread-safe via a
+        per-instance lock.
+        """
         self.metadata_file.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.metadata_file, 'w') as f:
-            json.dump(metadata, f, indent=2)
+        tmp = self.metadata_file.with_suffix(".json.tmp")
+        with self._metadata_lock:
+            with open(tmp, 'w') as f:
+                json.dump(metadata, f, indent=2)
+            os.replace(tmp, self.metadata_file)
 
     @staticmethod
     def _compute_hash(content: str) -> str:
@@ -108,12 +153,16 @@ class RAGDataLifecycle:
         text_splitter = get_semantic_chunker()
         chunks = text_splitter.split_documents(documents)
 
+        # Tag each chunk with the document_id for lifecycle management
+        for chunk in chunks:
+            chunk.metadata["document_id"] = doc_id
+
         # Store in Chroma with metadata
         Chroma.from_documents(
             documents=chunks,
             embedding=self.embeddings,
             persist_directory=self.chroma_persist_dir,
-            collection_name="documents"
+            collection_name=config.APIConfig.CHROMA_COLLECTION
         )
 
         # Update metadata
@@ -165,12 +214,28 @@ class RAGDataLifecycle:
         return metadata.get(document_id)
 
     def archive_document(self, document_id: str) -> dict[str, Any]:
-        """Mark a document as archived (soft delete)."""
+        """Archive a document — removes vectors from Chroma, keeps metadata.
+
+        The document's vectors are deleted from Chroma so they no longer
+        appear in retrieval results.  The JSON metadata is preserved for
+        audit purposes.
+        """
         metadata = self._load_metadata()
 
         if document_id not in metadata:
             return {"status": "error", "message": f"Document '{document_id}' not found"}
 
+        # Remove vectors from Chroma
+        try:
+            collection = self._get_collection()
+            collection.delete(where={"document_id": document_id})
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": f"Failed to delete vectors for '{document_id}': {e}",
+            }
+
+        # Keep metadata for audit trail
         metadata[document_id]["archived_at"] = datetime.utcnow().isoformat()
         metadata[document_id]["active"] = False
         self._save_metadata(metadata)
@@ -178,7 +243,7 @@ class RAGDataLifecycle:
         return {
             "status": "success",
             "document_id": document_id,
-            "message": f"Document '{document_id}' archived"
+            "message": f"Document '{document_id}' archived ({metadata[document_id].get('chunks_count', 0)} vectors removed)",
         }
 
     def restore_document(self, document_id: str) -> dict[str, Any]:

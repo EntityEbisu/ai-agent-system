@@ -163,6 +163,27 @@ async def _optional_auth(
 
 
 # ═══════════════════════════════════════════════════════════════════
+#  Startup lifecycle
+# ═══════════════════════════════════════════════════════════════════
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Verify Chroma collection accessibility at startup."""
+    import config
+    from app.services.observability import get_logger_instance
+    logger = get_logger_instance()
+    logger.log_info("startup", f"Chroma collection: {config.APIConfig.CHROMA_COLLECTION}")
+    try:
+        from app.rag.retriever import get_retriever
+        retriever = get_retriever()
+        retriever.invoke("startup probe")
+        logger.log_info("startup", "Chroma collection accessible — startup OK")
+    except Exception as e:
+        logger.log_warning("startup", f"Chroma not ready at startup: {e}")
+
+
+# ═══════════════════════════════════════════════════════════════════
 #  Public endpoints (no auth required)
 # ═══════════════════════════════════════════════════════════════════
 
@@ -524,7 +545,7 @@ async def list_document_versions(
 ):
     """List all document versions and metadata."""
     from app.rag.data_lifecycle import RAGDataLifecycle
-    lifecycle = RAGDataLifecycle()
+    lifecycle = RAGDataLifecycle.get_instance()
     versions = lifecycle.list_document_versions()
     return JSONResponse(status_code=200, content={"documents": versions})
 
@@ -537,7 +558,7 @@ async def get_lifecycle_stats(
 ):
     """Get document lifecycle statistics."""
     from app.rag.data_lifecycle import RAGDataLifecycle
-    lifecycle = RAGDataLifecycle()
+    lifecycle = RAGDataLifecycle.get_instance()
     stats = lifecycle.get_lifecycle_stats()
     return JSONResponse(status_code=200, content=stats)
 
@@ -573,7 +594,7 @@ async def ingest_document(
 
     from app.rag.data_lifecycle import RAGDataLifecycle
 
-    lifecycle = RAGDataLifecycle()
+    lifecycle = RAGDataLifecycle.get_instance()
     try:
         result = lifecycle.ingest_document(str(target), description, tags)
         return JSONResponse(status_code=200, content=result)
@@ -614,7 +635,7 @@ async def upload_document(
 
     from app.rag.data_lifecycle import RAGDataLifecycle
 
-    lifecycle = RAGDataLifecycle()
+    lifecycle = RAGDataLifecycle.get_instance()
     try:
         result = lifecycle.ingest_document(str(dest), description, tags)
         return JSONResponse(
@@ -636,7 +657,7 @@ async def archive_document(
 ):
     """Archive a document (soft delete)."""
     from app.rag.data_lifecycle import RAGDataLifecycle
-    lifecycle = RAGDataLifecycle()
+    lifecycle = RAGDataLifecycle.get_instance()
     result = lifecycle.archive_document(document_id)
     return JSONResponse(status_code=200, content=result)
 
@@ -650,7 +671,7 @@ async def get_ingestion_history(
 ):
     """Get document ingestion history."""
     from app.rag.data_lifecycle import RAGDataLifecycle
-    lifecycle = RAGDataLifecycle()
+    lifecycle = RAGDataLifecycle.get_instance()
     history = lifecycle.get_ingestion_history(limit=limit)
     return JSONResponse(status_code=200, content={"history": history})
 

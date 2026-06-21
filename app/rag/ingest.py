@@ -44,7 +44,8 @@ def ingest_documents():
     Chroma.from_documents(
         documents=chunks,
         embedding=embeddings,
-        persist_directory=CHROMA_PERSIST_DIR
+        persist_directory=CHROMA_PERSIST_DIR,
+        collection_name=APIConfig.CHROMA_COLLECTION,
     )
     print(f"Ingestion complete. {len(chunks)} chunks stored in ChromaDB at {CHROMA_PERSIST_DIR}")
 
