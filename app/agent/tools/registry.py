@@ -15,6 +15,8 @@ from langchain_core.tools import BaseTool
 
 from .check_order_status import CheckOrderStatusTool
 from .get_user_profile import GetUserProfileTool
+from .recall_facts import RecallFactsTool
+from .record_fact import RecordFactTool
 from .search_knowledge_base import SearchKnowledgeBaseTool
 from .update_shipping_address import UpdateShippingAddressTool
 
@@ -29,6 +31,8 @@ ALL_TOOLS: list[BaseTool] = [
     SearchKnowledgeBaseTool(),
     GetUserProfileTool(),
     UpdateShippingAddressTool(),
+    RecordFactTool(),
+    RecallFactsTool(),
 ]
 
 # ---------------------------------------------------------------------------

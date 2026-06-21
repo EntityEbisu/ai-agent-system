@@ -63,6 +63,8 @@ def new_session() -> dict[str, Any]:
         "errors": [],
         "tool_calls_made": [],
         "iteration": 0,
+        "memory_hits": [],
+        "user_facts": [],
     }
 
 

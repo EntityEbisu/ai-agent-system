@@ -95,6 +95,21 @@ class AgentState(TypedDict, total=False):
     ``compose`` node when formatting the final answer.
     """
 
+    # -- Memory (Phase C) ---------------------------------------------------
+
+    memory_hits: list[dict]
+    """Prior episodic summaries retrieved at session start (Phase C §12.2).
+
+    Populated by the ``load_memory`` node; injected into the system prompt
+    so the LLM has context from past conversations.
+    """
+
+    user_facts: list[dict]
+    """Structured facts about the user retrieved at session start (Phase C §12.3).
+
+    Populated by the ``load_memory`` node; injected into the system prompt.
+    """
+
     # -- Outcome ------------------------------------------------------------
 
     final_answer: str | None

@@ -31,6 +31,7 @@ from app.agent.memory import get_session, save_session
 from app.auth.dependencies import verify_token
 from app.data.models import ConversationSession, Message, init_db
 from app.exceptions import AppError
+from app.memory.episodic import EpisodicMemory
 from app.pii.redactor import redact, redact_message
 from app.services.observability import Timer, init_logging
 
@@ -355,11 +356,27 @@ async def chat(
         # Prepare state for persistence — remove transient fields
         save_keys = {"messages", "user_id", "session_id", "final_answer",
                      "errors", "iteration", "tool_calls_made",
-                     "pending_tool_call", "retrieved_context"}
+                     "pending_tool_call", "retrieved_context",
+                     "memory_hits", "user_facts"}
         save_state = {k: v for k, v in result.items() if k in save_keys}
 
         # Serialize messages will be handled by save_session's messages_to_dict
         await save_session(req.session_id, save_state)
+
+        # Store episodic memory summary when a final answer is produced
+        if result.get("final_answer"):
+            try:
+                user_id = result.get("user_id", "") or (token_payload or {}).get("sub", "")
+                if user_id:
+                    EpisodicMemory.build_and_store_summary(
+                        user_id=user_id,
+                        session_id=req.session_id,
+                        messages=result.get("messages", []),
+                    )
+            except Exception:
+                logger.log_error("episodic_store_error",
+                                 "Failed to store episodic summary",
+                                 {"session_id": req.session_id})
 
         return JSONResponse(
             status_code=200,
