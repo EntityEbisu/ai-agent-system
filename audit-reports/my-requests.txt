@@ -1,0 +1,181 @@
+PROMPT FOR HERMES AGENT — Audit-Driven Rebuild
+
+Project context:
+- Repository: /workspaces/ai-agent-system (EntityEbisu/ai-agent-system).
+- Domain: e-commerce customer support chatbot, currently mis-marketed as "agentic".
+- Audit verdict (in audit-work/): NOT an agent. Keyword-routed RAG chatbot with a
+  hard-coded slot-filler. The LLM is a text generator, not a controller. 22 bugs,
+  8 missing agentic pieces. Audit files: ai-agent-system-audit-report.md,
+  ai-agent-system-audit-summary.md, audit-phase-{A,B,C,D}.md.
+- Source code: ~1,500 LOC, 17 source files in app/, frontend/streamlit_app.py.
+  Stack: FastAPI + LangChain 1.x + LangGraph 1.1.7 (in requirements, unused) +
+  Chroma 1.5 + SQLite via SQLAlchemy + Streamlit. 167-line requirements.txt,
+  ~95% transitive. No tests, no CI, no real auth.
+
+Positioning for this work:
+- The project is a personal service used by one person, with limited demo access
+  for employment purposes. The audit-to-rebuild narrative IS the demo: a candidate
+  who can show "I found this wasn't really an agent, here's the audit with line
+  evidence, here's the rebuild into a real LangGraph ReAct agent" is more
+  compelling than a polished wrapper.
+- Treat the README's "Agentic Conversational AI" claim as the goal to earn,
+  not as a current fact.
+
+Infrastructure (locked in):
+- Source code: GitHub (this repo).
+- Dev environment: GitHub Codespaces, configured via .devcontainer/devcontainer.json
+  on a Python 3.11 image. Storage-heavy data (Chroma, SQLite) lives in the
+  Codespace, never on the developer's laptop. The developer's laptop is a thin
+  client (browser pointed at the running app).
+- Deploy target: DigitalOcean Basic droplet, provisioned with the $200 credit
+  from the GitHub Student Developer Pack. $4-6/mo size, 1 vCPU, 1 GB RAM.
+  100 GB Block Storage volume mounted at /var/lib/ai-agent, owned by the app's
+  UID. docker-compose stack: FastAPI + Streamlit + Chroma + SQLite, all data on
+  the volume. Static IP, DNS pointed at it, URL stable.
+- Backup deploy target (if DigitalOcean setup is delayed): Azure B1s VM from the
+  Student Pack $100 credit. Same layout, just a different VM.
+- Storage types this project needs (5 total, all on the persistent volume):
+  1. Source documents (FAQs, policies) — PDFs/text, bundled in the Docker image
+     or downloaded at container startup from a pinned commit in the repo.
+  2. Vector store — Chroma persistence directory.
+  3. Conversation DB — SQLite via SQLAlchemy (sessions, messages, tool records).
+  4. Document metadata — JSON file next to Chroma, written atomically.
+  5. Working session state — currently an in-memory dict (app/agent/memory.py).
+     For a personal service, persistence to the same SQLite DB is enough;
+     Redis is deferred.
+- Compute characteristics: mostly API calls (OpenRouter, optionally HF Hub for
+  embeddings). No heavy local compute except embedding model load and Chroma
+  similarity search. A 1 GB RAM droplet handles this fine.
+- Secrets: OpenRouter API key in /var/lib/ai-agent/.env on the droplet, not in
+  the repo. GitHub Secrets for CI.
+
+Audit-driven phased work — execute phases in this order, do not skip ahead.
+The execution model varies by phase based on the nature of the work:
+
+  Phase A     — AUTONOMOUS (mechanical fixes, clear pass/fail per step)
+  Phase B     — COLLABORATIVE (architectural — agent proposes design, human approves)
+  Phase C     — SEMI-AUTONOMOUS (mostly mechanical; one flag: reranker choice)
+  Phase D-lite — AUTONOMOUS (tests, CI, Dockerfile, README)
+
+- Phase A (Steps 0–6): correctness + security. Every step is interview-defensible
+  and a prerequisite for the rebuild. Acceptance criteria from the audit must
+  all be green before Phase B starts.
+- Phase B (Steps 7–11): the agent rebuild. THIS IS THE HEADLINE. Typed state,
+  tool registry with Pydantic args, structured Decision output, LangGraph
+  StateGraph with ReAct loop, delete app/agent/{router,workflow,state}.py and
+  app/agent/memory.py (the in-memory dict).
+- Phase C (Steps 12–14): memory + RAG. Do semantic chunking, citation
+  enforcement via structured Answer output, abstain threshold, prompt-injection
+  guard, fix the Chroma lifecycle bugs (collection name mismatch, archive
+  doesn't delete, non-atomic metadata writes, model reload per request). Skip
+  Cohere Rerank (defer to v2); use local bge-reranker-base or no reranker.
+- Phase D-lite (selected steps from 15–17):
+  - DO: /readyz endpoint that pings Chroma + SQLite, real test suite with
+    >=80% coverage on app/agent/, app/rag/, app/memory/, app/services/, real CI
+    workflow (ruff, mypy --strict, pytest --cov, pip-audit, docker build),
+    clean Dockerfile.
+  - DEFER: Kubernetes manifests (Phase D Step 17.3), Postgres+Alembic migration
+    (Step 17.1), OpenTelemetry collector (Step 15.2/15.4), Loki/Prometheus
+    stack (Step 15.3/15.4). Document these as "v2" in the README and in a
+    DECISIONS.md file so interviewers can ask about them without catching you
+    off-guard.
+
+Branch strategy: one branch per phase (phase-a/, phase-b/, phase-c/, phase-d/),
+branched from main after the previous phase is merged and reviewed. Each phase
+is self-contained — review the diff, request changes, then merge before the
+next phase starts.
+
+Cost posture:
+- Default to free / open-source. When a step in the audit prescribes a paid
+  service (Cohere, deepeval hosted, etc.), flag it, name the cost, and offer
+  the OSS alternative. Do not silently substitute.
+- OpenRouter spend: pay-as-you-go, a few dollars/month for personal use. Set a
+  per-day budget in OpenRouter dashboard; the OpenRouter spend metric should be
+  visible in the /metrics endpoint.
+
+Documentation requirements (every phase):
+- Docstrings: all new public functions, classes, and methods MUST have docstrings
+  explaining what they do, arguments, return values, and any side effects.
+- The README is updated ONCE at the end of Phase D-lite (not before). See
+  Phase D-lite Step 17 for the content specification — it must tell the
+  audit-to-rebuild narrative: what the project was, what the audit found, what
+  each phase accomplished, architecture overview, setup instructions, and API
+  usage.
+- DECISIONS.md is created in Phase D-lite documenting every deferred item
+  (Redis, Postgres, OTel, Loki, K8s, Cohere) with enough design depth to answer
+  interview questions about each one.
+- Architecture decisions made during Phase B (collaborative) should be recorded
+  in a DESIGN_NOTES.md file for reference during later phases.
+- API documentation: the README should include endpoint reference, or link to
+  an API.md if the surface area grows beyond 5 endpoints.
+
+API reliability and session safety:
+- The LLM APIs used by the coding agent (OpenCode, Ollama Cloud, OpenRouter)
+  are free-tier and may be rate-limited, disrupted, or have limited uptime.
+- Mitigation: the agent must git commit after EVERY completed step with a
+  descriptive message (e.g., "phase-a: Step 3 — SQLite session store"). If the
+  session dies mid-step, the developer picks up from the last commit.
+- Error recovery within a step: if an API call fails due to rate limiting,
+  retry once with 5-second backoff, then once more after 15 seconds. If the
+  third attempt also fails, log the error in a file <phase>-errors.md, mark
+  the step as blocked, and proceed to the next step. Do not loop indefinitely.
+- Print a progress line at each commit so a developer resuming a lost session
+  knows the exact resume point.
+- GitHub Copilot is available as a fallback IDE assistant for manual work, but
+  it is NOT a replacement for the autonomous agent loop. If the agent API is
+  down, the developer continues manually from the last branch commit.
+
+Working style (this is a coding-agent loop, not an LLM API call):
+- Default to proposing AND applying patches. For each audit step, show the
+  change, apply it, then verify (run the test, hit the endpoint, etc.) before
+  moving on.
+- Ask before destructive ops: deleting files, schema migrations, dependency
+  changes that affect image size significantly, anything that touches
+  /var/lib/ai-agent on the deploy target. The audit's instruction to "delete
+  app/agent/router.py, workflow.py, state.py" is the explicit authorization
+  for those deletes once Phase B begins — no need to re-ask per file.
+- Cite evidence with file paths and line ranges. The audit cites
+  "app/agent/router.py:37-42" — verify against the live code, don't just
+  parrot the audit's claim. If the audit's evidence has drifted (the code
+  changed since the audit was written), say so explicitly.
+- Group work by audit step (Step 0, Step 1, ...), not by file. Each step has
+  acceptance criteria in the audit; treat those as the definition of done.
+- When the audit and the code disagree (e.g., README says "agentic" but code
+  is a keyword router), surface it explicitly in your writeup, don't hide it.
+- Use the todo tool to track multi-step work. Don't produce a single JSON
+  blob at the end.
+- Do not commit, push, or modify audit-work/ (it's the source of truth, not
+  your workspace).
+- README: only update in Phase D-lite as a single coordinated rewrite. During
+  Phases A-C, leave README untouched even if the project changes — the
+  narrative rewrite happens last.
+- Read the actual files before changing them. Use read_file, search_files,
+  and terminal. Don't guess at contents based on the audit's line citations
+  alone.
+
+Out of scope (do not work on these unless explicitly asked):
+- Migrating the deploy to Kubernetes.
+- Adding multi-region support, A/B testing, or analytics.
+- Adding user registration, OAuth, or a full fastapi-users flow (a simple JWT
+  is enough for the demo; document the upgrade path).
+- Switching the LLM provider away from OpenRouter (the multi-model routing is
+  a feature, not a bug).
+- Adding a non-Streamlit frontend.
+
+Output style per audit step (terse, terminal-friendly):
+  Step N: <name>
+  Status: confirmed | partial | outdated | unsupported
+  Evidence: file:line — actual snippet
+  Action: patch | propose | ask | skip
+  Diff: <the change applied, or "see file">
+  Verify: <command run, expected output>
+  Acceptance: <which audit acceptance criterion this satisfies>
+
+Start by reading audit-work/ai-agent-system-audit-summary.md end-to-end and
+listing the 22 bugs and 8 missing agentic pieces, then proceed immediately to
+Phase A Step 0 (pyproject.toml + devcontainer + trimmed requirements.txt).
+Do NOT stop to ask for confirmation — the execution model table at the top of
+this prompt defines when to ask vs when to proceed autonomously. Phase A is
+AUTONOMOUS: implement, verify, and commit each step without pausing for approval.
+
+End of prompt.
