@@ -9,7 +9,6 @@ Implements:
 - HSTS security header
 """
 
-import json
 import os
 import re
 import uuid
@@ -18,16 +17,17 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from langchain_core.messages import HumanMessage
 from pydantic import BaseModel
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
+from app.agent.graph import agent_graph
 from app.agent.memory import configure as configure_session_store
 from app.agent.memory import get_session, save_session
-from app.agent.router import handle_message_stream
 from app.auth.dependencies import verify_token
 from app.data.models import ConversationSession, Message, init_db
 from app.exceptions import AppError
@@ -287,90 +287,103 @@ async def chat(
     req: ChatRequest,
     token_payload: dict = Depends(verify_token),
 ):
-    """Chat endpoint with streaming responses and observability."""
+    """Chat endpoint using the LangGraph agent.
+
+    Loads session state, runs the graph, and returns the agent's response.
+    """
     state = await get_session(req.session_id)
     logger = get_logger_instance()
 
-    async def event_generator():
-        try:
-            with Timer("/chat") as timer:
-                # Redact PII in logged message preview
-                redacted_preview = redact(req.message[:100])
+    # Redact PII in logged message preview
+    redacted_preview = redact(req.message[:100])
 
-                logger.log_request(
-                    endpoint="/chat",
-                    method="POST",
-                    session_id=req.session_id,
-                    message_preview=redacted_preview,
-                )
+    logger.log_request(
+        endpoint="/chat",
+        method="POST",
+        session_id=req.session_id,
+        message_preview=redacted_preview,
+    )
 
-                persist_message(
-                    session_id=req.session_id,
-                    role="user",
-                    content=req.message,
-                    intent=state.get("intent"),
-                    context_type=state.get("intent"),
-                )
+    persist_message(
+        session_id=req.session_id,
+        role="user",
+        content=req.message,
+    )
 
-                full_response = ""
-                token_count = 0
-                async for chunk in handle_message_stream(req.message, state):
-                    full_response += chunk
-                    token_count += 1
-                    yield json.dumps({"token": chunk}) + "\n"
+    try:
+        with Timer("/chat") as timer:
+            # Add user message to conversation history
+            state.setdefault("messages", [])
+            state["messages"].append(HumanMessage(content=req.message))
 
-            get_metrics_instance().record_latency("/chat", timer.elapsed_ms)
+            # Run the agent graph
+            result = agent_graph.invoke(state)
 
-            estimated_user_tokens = len(req.message) // 4
-            estimated_response_tokens = len(full_response) // 4
-            total_tokens = estimated_user_tokens + estimated_response_tokens
+            # Extract response
+            if result.get("final_answer"):
+                response = str(result["final_answer"])
+            elif result.get("decision") and hasattr(result["decision"], "question_for_user"):
+                response = result["decision"].question_for_user or ""
+            else:
+                # Fall back to last assistant message
+                msgs = result.get("messages", [])
+                response = msgs[-1].content if msgs else "I'm processing your request..."
 
-            logger.log_response(
-                endpoint="/chat",
-                status="success",
-                latency_ms=timer.elapsed_ms,
-                tokens_used=total_tokens,
-                prompt_tokens=estimated_user_tokens,
-                completion_tokens=estimated_response_tokens,
-            )
+        get_metrics_instance().record_latency("/chat", timer.elapsed_ms)
 
-            persist_message(
-                session_id=req.session_id,
-                role="assistant",
-                content=full_response,
-                intent=state.get("intent"),
-                context_type=state.get("intent"),
-                processing_time_ms=timer.elapsed_ms,
-                tokens_used=total_tokens,
-            )
+        estimated_user_tokens = len(req.message) // 4
+        estimated_response_tokens = len(response) // 4
+        total_tokens = estimated_user_tokens + estimated_response_tokens
 
-            state.get("history").append({
-                "user": req.message,
-                "assistant": full_response,
-                "tokens": total_tokens,
-            })
+        logger.log_response(
+            endpoint="/chat",
+            status="success",
+            latency_ms=timer.elapsed_ms,
+            tokens_used=total_tokens,
+            prompt_tokens=estimated_user_tokens,
+            completion_tokens=estimated_response_tokens,
+        )
 
-            await save_session(req.session_id, state)
-        except AppError as e:
-            logger.log_error("chat_error", e.log_message)
-            from contextlib import suppress
-            with suppress(Exception):
-                await save_session(req.session_id, state)
-            yield json.dumps({
+        persist_message(
+            session_id=req.session_id,
+            role="assistant",
+            content=response,
+            processing_time_ms=timer.elapsed_ms,
+            tokens_used=total_tokens,
+        )
+
+        # Prepare state for persistence — remove transient fields
+        save_keys = {"messages", "user_id", "session_id", "final_answer",
+                     "errors", "iteration", "tool_calls_made",
+                     "pending_tool_call", "retrieved_context"}
+        save_state = {k: v for k, v in result.items() if k in save_keys}
+
+        # Serialize messages will be handled by save_session's messages_to_dict
+        await save_session(req.session_id, save_state)
+
+        return JSONResponse(
+            status_code=200,
+            content={"response": response, "session_id": req.session_id},
+        )
+
+    except AppError as e:
+        logger.log_error("chat_error", e.log_message)
+        return JSONResponse(
+            status_code=500,
+            content={
                 "error": e.user_message,
                 "error_type": type(e).__name__,
-            }) + "\n"
-        except Exception as e:
-            logger.log_error("chat_error", str(e))
-            from contextlib import suppress
-            with suppress(Exception):
-                await save_session(req.session_id, state)
-            yield json.dumps({
+            },
+        )
+    except Exception as e:
+        logger.log_error("chat_error", str(e))
+        return JSONResponse(
+            status_code=500,
+            content={
                 "error": "An unexpected error occurred. Please try again.",
                 "error_type": "InternalError",
-            }) + "\n"
-
-    return StreamingResponse(event_generator(), media_type="application/x-ndjson")
+            },
+        )
 
 
 # ═══════════════════════════════════════════════════════════════════

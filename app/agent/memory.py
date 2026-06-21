@@ -14,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from .state import AgentState, MAX_ITERATIONS
+from langchain_core.messages import messages_from_dict, messages_to_dict
 
 _db_path: Path | None = None
 _locks: dict[str, asyncio.Lock] = {}
@@ -98,7 +98,17 @@ async def get_session(session_id: str) -> dict[str, Any]:
     )
     row = cursor.fetchone()
     if row:
-        return dict(json.loads(row[0]))
+        state = dict(json.loads(row[0]))
+        # Deserialize messages from LangChain's serialization format
+        raw_messages = state.pop("messages", [])
+        if raw_messages and isinstance(raw_messages, list):
+            try:
+                state["messages"] = messages_from_dict(raw_messages)
+            except Exception:
+                state["messages"] = []
+        else:
+            state["messages"] = []
+        return state
 
     state = new_session()
     conn.execute(
@@ -119,10 +129,21 @@ async def save_session(session_id: str, state: dict[str, Any]) -> None:
     """
     lock = _get_lock(session_id)
     async with lock:
+        # Serialize messages to LangChain's JSON-compatible format
+        state_copy = dict(state)
+        raw_messages = state_copy.pop("messages", [])
+        if raw_messages and isinstance(raw_messages, list):
+            try:
+                state_copy["messages"] = messages_to_dict(raw_messages)
+            except Exception:
+                state_copy["messages"] = []
+        else:
+            state_copy["messages"] = []
+
         conn = _get_connection()
         conn.execute(
             "UPDATE session_state SET state_json = ?, updated_at = ? "
             "WHERE session_id = ?",
-            (json.dumps(state), datetime.utcnow().isoformat(), session_id),
+            (json.dumps(state_copy), datetime.utcnow().isoformat(), session_id),
         )
         conn.commit()
