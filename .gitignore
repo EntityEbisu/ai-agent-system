@@ -30,6 +30,7 @@ venv/
 
 # Miscellaneous
 .continue/
+prompts/
 
 # Exclude documentation directories from remote repository
 docs/
