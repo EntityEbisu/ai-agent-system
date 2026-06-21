@@ -30,6 +30,10 @@ class APIConfig:
     # Vector Store Configuration
     CHROMA_PERSIST_DIR = os.getenv("CHROMA_PERSIST_DIR", "data/chroma_db")
 
+    # Re-ranker Configuration (v2-track — disabled by default)
+    RERANKER_PROVIDER = os.getenv("RERANKER_PROVIDER", "")  # "" = none, "bge-reranker-base" for future
+    ABSTAIN_THRESHOLD = float(os.getenv("ABSTAIN_THRESHOLD", "0.6"))
+
     # PDF Configuration
     PDF_PATH = os.getenv("PDF_PATH", "data/docs/Company-10k-18pages.pdf")
     DOCS_DIR = os.getenv("DOCS_DIR", "data/docs")
