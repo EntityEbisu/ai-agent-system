@@ -8,8 +8,8 @@ import os
 from dotenv import load_dotenv
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_community.vectorstores import Chroma
-from langchain_text_splitters import RecursiveCharacterTextSplitter
 
+from app.rag.chunker import get_semantic_chunker
 from app.services.llm import get_embeddings
 from config import APIConfig
 
@@ -30,13 +30,8 @@ def ingest_documents():
     documents = loader.load()
     print(f"Loaded {len(documents)} pages.")
 
-    print("Splitting documents into chunks...")
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=1000,
-        chunk_overlap=200,
-        length_function=len,
-        add_start_index=True,
-    )
+    print("Splitting documents into chunks (semantic)...")
+    text_splitter = get_semantic_chunker()
     chunks = text_splitter.split_documents(documents)
     print(f"Split into {len(chunks)} chunks.")
 

@@ -13,9 +13,9 @@ from typing import Any
 
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_community.vectorstores import Chroma
-from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 import config
+from app.rag.chunker import get_semantic_chunker
 from app.services.llm import get_embeddings
 
 
@@ -104,13 +104,8 @@ class RAGDataLifecycle:
                 }
             existing_version = existing.get("version", 1) + 1
 
-        # Split into chunks
-        text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1000,
-            chunk_overlap=200,
-            length_function=len,
-            add_start_index=True,
-        )
+        # Split into chunks using semantic chunking
+        text_splitter = get_semantic_chunker()
         chunks = text_splitter.split_documents(documents)
 
         # Store in Chroma with metadata
