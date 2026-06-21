@@ -14,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from .state import init_state
+from .state import AgentState, MAX_ITERATIONS
 
 _db_path: Path | None = None
 _locks: dict[str, asyncio.Lock] = {}
@@ -52,6 +52,20 @@ def _get_connection() -> sqlite3.Connection:
     return conn
 
 
+def new_session() -> dict[str, Any]:
+    """Return a fresh AgentState-compatible dictionary with defaults.
+
+    Returns:
+        A plain dict that satisfies the ``AgentState`` contract.
+    """
+    return {
+        "messages": [],
+        "errors": [],
+        "tool_calls_made": [],
+        "iteration": 0,
+    }
+
+
 def _get_lock(session_id: str) -> asyncio.Lock:
     """Get or create a per-session asyncio.Lock.
 
@@ -86,7 +100,7 @@ async def get_session(session_id: str) -> dict[str, Any]:
     if row:
         return dict(json.loads(row[0]))
 
-    state = init_state()
+    state = new_session()
     conn.execute(
         "INSERT INTO session_state (session_id, state_json, updated_at) "
         "VALUES (?, ?, ?)",
