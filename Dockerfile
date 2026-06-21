@@ -1,13 +1,4 @@
 # Dockerfile – single-stage, CPU-only build
-#
-# Strategy:
-#   1. Install CPU-only PyTorch from the official CPU-only index.
-#   2. Install all other dependencies via requirements.txt.
-#   3. The requirements.txt does NOT list torch (it's installed in step 1),
-#      preventing pip from pulling the GPU bundle (nvidia-*, triton).
-#   4. Remove the nvidia-* packages that onnxruntime (chromadb dep) pulls in
-#      as optional CUDA libraries — they're never loaded on a CPU-only host.
-
 FROM python:3.11-slim-bookworm
 
 RUN apt-get update && \
@@ -16,7 +7,6 @@ RUN apt-get update && \
         && \
     rm -rf /var/lib/apt/lists/*
 
-# Create non-root user
 ARG UID=1000
 ARG GID=1000
 RUN addgroup --gid $GID appuser && \
@@ -24,27 +14,41 @@ RUN addgroup --gid $GID appuser && \
 
 WORKDIR /app
 
-# Install CPU-only PyTorch from the official CPU-only index
+# ---- Stage: Install CPU-only PyTorch ----
 RUN pip install --no-cache-dir torch==2.6.0 --index-url https://download.pytorch.org/whl/cpu
 
-# Install remaining Python dependencies
+# Install remaining Python deps from CPU index too, so torch stays CPU-only
+# (sentence-transformers → torch dep must resolve to the CPU variant)
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt \
+      --index-url https://download.pytorch.org/whl/cpu \
+      --extra-index-url https://pypi.org/simple && \
+    # Remove nvidia CUDA packages (not needed on CPU)
+    pip uninstall -y \
+        nvidia-cublas-cu12 nvidia-cuda-cupti-cu12 nvidia-cuda-nvrtc-cu12 \
+        nvidia-cuda-runtime-cu12 nvidia-cudnn-cu12 nvidia-cufft-cu12 \
+        nvidia-curand-cu12 nvidia-cusolver-cu12 nvidia-cusparse-cu12 \
+        nvidia-cusparselt-cu12 nvidia-nccl-cu12 nvidia-nvjitlink-cu12 \
+        nvidia-nvtx-cu12 \
+        2>/dev/null || true && \
+    # Remove GPU-only triton compiler
+    pip uninstall -y triton 2>/dev/null || true && \
+    # Strip caches, tests from installed packages (keep .dist-info for metadata)
+    find /usr/local/lib/python3.11/site-packages -type d \( \
+        -name "__pycache__" -o \
+        -name "tests" -o \
+        -name "test" \
+    \) -exec rm -rf {} + 2>/dev/null || true && \
+    # Remove native code .o / .a / .lib files and CMake artifacts
+    find /usr/local/lib/python3.11/site-packages -type f \( \
+        -name "*.o" -o -name "*.a" -o -name "*.lib" -o \
+        -name "CMakeCache.txt" -o -name "cmake_install.cmake" \
+    \) -delete 2>/dev/null || true && \
+    # Remove huggingface model cache
+    rm -rf /root/.cache /root/.local /tmp/*
 
-# Remove CUDA packages that onnxruntime (chromadb dep) pulls in but never uses
-# on a CPU-only machine.  This reclaims ~2 GB.  triton is also GPU-only.
-RUN pip uninstall -y \
-    nvidia-cublas-cu12 nvidia-cuda-cupti-cu12 nvidia-cuda-nvrtc-cu12 \
-    nvidia-cuda-runtime-cu12 nvidia-cudnn-cu12 nvidia-cufft-cu12 \
-    nvidia-curand-cu12 nvidia-cusolver-cu12 nvidia-cusparse-cu12 \
-    nvidia-cusparselt-cu12 nvidia-nccl-cu12 nvidia-nvjitlink-cu12 \
-    nvidia-nvtx-cu12 triton \
-    2>/dev/null || true
-
-# Copy application code
-COPY . .
-
-RUN chown -R appuser:appuser /app
+# ---- Copy application code ----
+COPY --chown=appuser:appuser . .
 
 USER appuser
 

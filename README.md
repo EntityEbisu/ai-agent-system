@@ -1,4 +1,4 @@
-# 🧠 Agentic Conversational AI System - E-commerce Customer Support Agent
+# Conversational AI Agent — RAG + Tool-Calling
 
 [![CI/CD Pipeline](https://github.com/EntityEbisu/ai-agent-system/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/EntityEbisu/ai-agent-system/actions/workflows/ci.yml)
 

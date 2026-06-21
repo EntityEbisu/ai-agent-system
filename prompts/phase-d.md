@@ -42,10 +42,21 @@ Minimum items to cover:
 
 ## Verify before declaring done
 
-- `docker build` produces an image <2 GB
+- `docker build --check .` validates the Dockerfile (syntax, missing files) — **no image produced, zero disk cost**
+- `docker build` (full build) only if instructed manually — consumes ~5.6 GB per run
 - `curl /readyz` returns 200 when services are up
 - `pytest --cov=app --cov-fail-under=80` passes
 - CI workflow runs on push to `phase-d/`
+
+## Disk constraint — critical
+
+This environment has **32 GB total**. A single `docker build` produces ~2.3 GB image + ~3.3 GB build cache (~5.6 GB). Running it twice without cleanup exhausts free space and breaks everything.
+
+**If you run `docker build` for any reason, you MUST run this immediately after verification:**
+```
+docker system prune -f
+```
+Prune first, then move to the next step. Do not skip this.
 
 ## Output per step
 

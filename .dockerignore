@@ -33,6 +33,11 @@ Thumbs.db
 .env
 *.env
 
+# Caches (large, not needed at runtime)
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
 # Docker
 Dockerfile
 .dockerignore
@@ -41,3 +46,12 @@ Dockerfile
 data/chroma_db/
 data/csv/
 data/docs/Company-10k-18pages.pdf
+
+# Architecture docs
+system_architecture_documents_v1.0/
+
+# Audit
+audit-reports/
+
+# Hermes config
+.hermes/

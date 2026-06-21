@@ -1,17 +1,2 @@
-# Pip constraints file — forbids nvidia CUDA packages
-# These are pulled in by onnxruntime (chromadb dependency) but are never
-# loaded on a CPU-only machine.  Pinning them to a non-existent version
-# causes pip to skip them entirely.
-nvidia-cublas-cu12==0.0.0
-nvidia-cuda-cupti-cu12==0.0.0
-nvidia-cuda-nvrtc-cu12==0.0.0
-nvidia-cuda-runtime-cu12==0.0.0
-nvidia-cudnn-cu12==0.0.0
-nvidia-cufft-cu12==0.0.0
-nvidia-curand-cu12==0.0.0
-nvidia-cusolver-cu12==0.0.0
-nvidia-cusparse-cu12==0.0.0
-nvidia-cusparselt-cu12==0.0.0
-nvidia-nccl-cu12==0.0.0
-nvidia-nvjitlink-cu12==0.0.0
-nvidia-nvtx-cu12==0.0.0
+# This file intentionally left blank.
+# Placeholder for pip constraints if needed in future.
