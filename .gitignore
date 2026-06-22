@@ -50,10 +50,10 @@ Thumbs.db
 __pycache__/
 
 # Exclude additional documentation and guide files from remote repository
+# Legacy docs — removed from git history
 DATA_LIFECYCLE.md
 CONTRIBUTING.md
 IaC_DOCUMENTATION.md
 LEVEL_200_300_IMPLEMENTATION.md
-TESTING_GUIDE.md
 [CloudKinetics]AI_Data_Cloud_SA_Intern_assignment.md
 CHANGELOG.md
